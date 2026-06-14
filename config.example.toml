@@ -1,0 +1,40 @@
+# Copy this file to config.toml and fill in the blanks.
+# config.toml is gitignored because it can hold secrets.
+
+[anthropic]
+# The agent's brain. Defaults to the most capable model.
+model = "claude-opus-4-8"
+
+[search]
+# "auto"  -> use Prowlarr if configured, otherwise fall back to apibay (TPB)
+# "prowlarr" -> Prowlarr only
+# "apibay"   -> The Pirate Bay JSON API only (works with no setup)
+backend = "auto"
+
+[search.prowlarr]
+# Stand up Prowlarr (docker is easiest), then paste its URL + API key here.
+# Leave url empty to disable Prowlarr and use the apibay fallback.
+url = ""
+api_key = ""
+
+[deluge]
+# Deluge daemon RPC. Requires `deluged` running (see README).
+host = "127.0.0.1"
+port = 58846
+# Leave username/password empty to auto-read ~/.config/deluge/auth (localclient).
+username = ""
+password = ""
+
+[vpn]
+# Only "pia" is implemented (uses piactl).
+provider = "pia"
+
+[preferences]
+# Most-preferred resolution first.
+resolutions = ["1080p", "2160p", "720p"]
+# Release is boosted if its codec matches any of these (substring, case-insensitive).
+prefer_codecs = ["x265", "hevc", "h265"]
+# Drop single TV episodes larger than this (GB). 0 disables the cap.
+max_episode_size_gb = 20
+# Drop results with fewer seeders than this.
+min_seeders = 1

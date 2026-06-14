@@ -1,0 +1,4 @@
+anthropic>=0.69
+deluge-client>=1.10
+guessit>=3.8
+requests>=2.31

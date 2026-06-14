@@ -1,0 +1,50 @@
+# Prowlarr + FlareSolverr on a shared network.
+# FlareSolverr lets Prowlarr add Cloudflare-protected indexers (1337x, etc.).
+#
+# Reuses the existing ~/.config/prowlarr volume, so your indexers, API key, and
+# login are preserved. Prowlarr reaches FlareSolverr at http://flaresolverr:8191
+# (container name on the shared network — NOT localhost).
+#
+#   docker rm -f prowlarr flaresolverr   # remove any standalone containers first
+#   docker compose up -d
+#
+# (prefix with sudo if your user isn't in the docker group)
+
+name: torrent-agent
+
+services:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC          # set to your zone, e.g. Europe/Dublin
+    volumes:
+      # Absolute path on purpose: running `docker compose` under sudo makes
+      # ${HOME} expand to /root, which silently mounts an empty config and
+      # regenerates the API key. Pin it to your real config dir.
+      - /home/agb86/.config/prowlarr:/config
+    ports:
+      - "9696:9696"
+    networks:
+      - media
+    depends_on:
+      - flaresolverr
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Etc/UTC
+    ports:
+      - "8191:8191"          # publish is optional; handy for debugging
+    networks:
+      - media
+
+networks:
+  media:
+    driver: bridge
