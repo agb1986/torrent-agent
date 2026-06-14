@@ -175,20 +175,60 @@ def _search_apibay(query: str, media_type: str) -> list[TorrentResult]:
 # --------------------------------------------------------------------------- #
 # Dispatch
 # --------------------------------------------------------------------------- #
+def _dedupe(results: list[TorrentResult]) -> list[TorrentResult]:
+    """Collapse the same torrent from multiple sources, keeping the best-seeded.
+
+    Keyed by info hash; results without one are always kept (can't tell apart).
+    """
+    best: dict[str, TorrentResult] = {}
+    out: list[TorrentResult] = []
+    for r in results:
+        key = r.info_hash.lower() if r.info_hash else None
+        if key is None:
+            out.append(r)
+        elif key not in best:
+            best[key] = r
+            out.append(r)
+        elif r.seeders > best[key].seeders:
+            out[out.index(best[key])] = r
+            best[key] = r
+    return out
+
+
 def search(query: str, media_type: str, config: dict[str, Any]) -> list[TorrentResult]:
     """Search using the configured backend.
 
-    media_type is one of "tv", "movie", or "any".
+    media_type is one of "tv", "movie", or "any". With ``backend = "auto"`` both
+    Prowlarr (if configured) and apibay/TPB are queried and merged, so an episode
+    that is dead on one indexer can still be found, well-seeded, on the other.
     """
     search_cfg = config.get("search", {})
     backend = search_cfg.get("backend", "auto")
     prowlarr = search_cfg.get("prowlarr", {})
     prowlarr_ready = bool(prowlarr.get("url") and prowlarr.get("api_key"))
 
-    if backend == "prowlarr" or (backend == "auto" and prowlarr_ready):
+    if backend == "prowlarr":
         if not prowlarr_ready:
             raise SearchError("Prowlarr backend selected but url/api_key not set.")
-        return _search_prowlarr(
-            query, media_type, prowlarr["url"], prowlarr["api_key"]
-        )
-    return _search_apibay(query, media_type)
+        return _search_prowlarr(query, media_type, prowlarr["url"], prowlarr["api_key"])
+    if backend == "apibay":
+        return _search_apibay(query, media_type)
+
+    # auto: query every available source, merge, and tolerate one failing.
+    results: list[TorrentResult] = []
+    errors: list[str] = []
+    if prowlarr_ready:
+        try:
+            results += _search_prowlarr(
+                query, media_type, prowlarr["url"], prowlarr["api_key"]
+            )
+        except SearchError as exc:
+            errors.append(str(exc))
+    try:
+        results += _search_apibay(query, media_type)
+    except SearchError as exc:
+        errors.append(str(exc))
+
+    if not results and errors:
+        raise SearchError("; ".join(errors))
+    return _dedupe(results)

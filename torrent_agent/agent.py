@@ -17,7 +17,10 @@ from .config import anthropic_api_key
 from .vpn import vpn_status
 
 _MAX_TURNS = 16
-_TOP_N = 8
+# Cap on results shown to the model. Kept generous so a "grab every episode"
+# request isn't silently truncated to whichever few episodes rank highest —
+# several releases per episode can otherwise crowd a whole season out of view.
+_TOP_N = 40
 
 SYSTEM_PROMPT = """\
 You are a torrent-fetching agent. Given a request (usually a TV show or movie),
