@@ -1,6 +1,6 @@
 ---
 name: tidy-files
-description: Tidy TV and film media files - repackage TV directories or single episodes into a clean "Show Name/Season XX/SXXEYY - Episode Name.ext" structure (episode names from TVmaze), and rename films to "Film Name - Year.ext". Use when the user wants to tidy, rename, repackage, or organize downloaded TV shows or movies.
+description: Tidy TV and film media files - repackage TV directories or single episodes into a clean "Show Name (Year) [tmdbid-N]/Season XX/SXXEYY - Episode Name.ext" structure (episode names from TVmaze, ids from TMDB/Wikidata so Jellyfin matches exactly), and rename films to "Film Name (Year) [tmdbid-N].ext". Use when the user wants to tidy, rename, repackage, or organize downloaded TV shows or movies.
 ---
 
 # Tidy Files
@@ -10,17 +10,23 @@ Repackage messy media files into a clean, consistently named structure.
 TV target format — a directory tree:
 
 ```
-Show Name/
+One Piece (1999) [tmdbid-37854]/
   Season 01/
-    S01E01 - Pilot.mkv
-    S01E02 - The Second One.mkv
+    S01E01 - I'm Luffy! The Man Who's Gonna Be King of the Pirates!.mkv
+    S01E02 - The Great Swordsman Appears! Pirate Hunter Roronoa Zoro.mkv
 ```
 
 Film target format — a flat file:
 
 ```
-Withnail and I - 1987.mkv
+Withnail and I (1987) [tmdbid-13446].mkv
 ```
+
+The `[tmdbid-NNNNN]` tag is what makes Jellyfin match the item **exactly**
+instead of guessing from the name. Its guess is wrong often enough to matter:
+search "One Piece" and the top hit is the 2023 live action, not the 1999 anime.
+Season directories and episode files carry no tag — Jellyfin only needs the id
+at the series/film level.
 
 Tidying only. To send the result to the CASAOS server afterwards, use the
 **transfer-files** skill.
@@ -76,7 +82,8 @@ directory holding one media file plus junk.
 A directory may hold several unrelated films; handle each as its own film. If a
 directory mixes TV and film, say so and ask the user how to split it.
 
-Then follow **Step 3A** (TV) or **Step 3B** (film).
+Then follow **Step 3A** (TV) or **Step 3B** (film), and **Step 3C** either way —
+both target names end in a TMDB id.
 
 ## Step 3A — TV: parse show / season / episode
 
@@ -105,12 +112,20 @@ Use the free TVmaze API (no key needed) via `curl`:
 
 1. Resolve the show:
    `curl -s "https://api.tvmaze.com/singlesearch/shows?q=SHOW+NAME"` →
-   take `id` and canonical `name`. Confirm with the user if the matched show
-   name differs significantly from the parsed one.
+   take `id` and canonical `name`. Also keep `premiered` (the year for the
+   directory name) and `externals.imdb` (feeds the TMDB lookup below).
+   Confirm with the user if the matched show name differs significantly from
+   the parsed one.
 2. Get all episodes:
    `curl -s "https://api.tvmaze.com/shows/<id>/episodes"` → array with
    `season`, `number`, `name`.
 3. Map each file's (season, episode) to the canonical episode name.
+
+TVmaze's own search has the same weakness as Jellyfin's — `q=one piece`
+returns the 2023 live action. When the release is plainly older or newer than
+what came back, search with the year (`q=one piece 1999`) or use
+`/search/shows?q=` and pick from the list rather than accepting
+`singlesearch`'s first guess.
 
 Fallback if TVmaze has no match: fetch
 `https://epguides.com/<ShowNameNoSpaces>/` and parse the episode list from the
@@ -122,8 +137,9 @@ Restore the real words — a filename is not the place for asterisks.
 
 ### TV rename plan
 
-- **Directory input**: create a new directory next to the source named after the
-  canonical show name, with `Season 01`, `Season 02`, ... subdirectories. Each
+- **Directory input**: create a new directory next to the source named
+  `Show Name (Year) [tmdbid-NNNNN]` (see **Step 3C**), with `Season 01`,
+  `Season 02`, ... subdirectories. Each
   media file becomes `SXXEYY - Episode Name.ext` (zero-padded, two digits; more
   if the show has 100+ episodes per season). Subtitle files get the same
   basename as their episode, keeping language tags if present (e.g.
@@ -132,7 +148,8 @@ Restore the real words — a filename is not the place for asterisks.
 
 ## Step 3B — Film: parse name and year
 
-Target name is `Film Name - Year.ext`, e.g. `Withnail and I - 1987.mkv`.
+Target name is `Film Name (Year) [tmdbid-NNNNN].ext`, e.g.
+`Withnail and I (1987) [tmdbid-13446].mkv` (the id comes from **Step 3C**).
 
 - Film name: everything before the year token, dots/underscores converted to
   spaces, release junk stripped (`1080p`, `2160p`, `BluRay`, `WEB-DL`, `REMUX`,
@@ -143,8 +160,10 @@ Target name is `Film Name - Year.ext`, e.g. `Withnail and I - 1987.mkv`.
   the *release year*, not one belonging to the title (`2001 A Space Odyssey`,
   `Blade Runner 2049`, `1917`).
 
-Edition tags worth keeping go after the year, in parentheses:
-`The Prestige - 2006 (Director's Cut).mkv`. Drop everything else.
+Edition tags worth keeping go **after** the tmdbid tag, in parentheses:
+`The Prestige (2006) [tmdbid-1124] (Director's Cut).mkv`. Keep the
+`Name (Year) [tmdbid-N]` part contiguous — that is the bit Jellyfin parses.
+Drop everything else.
 
 ### When the year is missing
 
@@ -161,34 +180,89 @@ you expect, ask the user for the year rather than guessing.
 
 ### Film rename plan
 
-- **Single file input**: rename in place to `Film Name - Year.ext`.
+- **Single file input**: rename in place to `Film Name (Year) [tmdbid-N].ext`.
 - **Release directory input**: move the one media file out to
-  `Film Name - Year.ext` alongside the source directory, leaving the junk
-  behind. Keep subtitles on a matching basename (`Film Name - Year.en.srt`).
+  `Film Name (Year) [tmdbid-N].ext` alongside the source directory, leaving the
+  junk behind. Keep subtitles on a matching basename
+  (`Film Name (Year) [tmdbid-N].en.srt`).
 - Films are flat files, not directories — this matches `/mnt/data/film` on the
   server.
+
+## Step 3C — Look up the TMDB id
+
+Run `scripts/tmdb_id.py` from the project root (`~/workspace/repos/torrent-agent`)
+once per show or film — not per episode:
+
+```bash
+.venv/bin/python scripts/tmdb_id.py --type tv --title "One Piece" --year 1999
+.venv/bin/python scripts/tmdb_id.py --type movie --title "Withnail and I" --year 1987
+```
+
+Pass `--imdb tt0388629` whenever TVmaze gave you an `externals.imdb` — that
+turns the search into an exact lookup and removes the guesswork entirely.
+Always pass `--year` when you have one; it is what separates a film from its
+remake.
+
+It prints JSON with `tmdb_id`, the canonical `name`, the `year`, and a ready-made
+`tag`:
+
+```json
+{
+  "tmdb_id": "37854",
+  "name": "One Piece",
+  "year": 1999,
+  "source": "wikidata",
+  "tag": "One Piece (1999) [tmdbid-37854]"
+}
+```
+
+Use `tag` verbatim as the directory name (TV) or the file basename (film) —
+it already strips characters a path cannot hold. `--tag` prints just that line
+if you want it for a shell variable.
+
+No API key is needed: without `TMDB_API_KEY` it resolves ids through Wikidata,
+which is where the examples above come from. Setting the key just makes TMDB
+itself the first source, which matters for very new releases Wikidata has not
+caught up with.
+
+### When it cannot decide
+
+- **Exit 2 — ambiguous.** It prints the candidates it could not separate
+  (usually a title and its remakes). Show them to the user with their years and
+  ask which; never pick one yourself, a wrong id makes Jellyfin download
+  metadata for the wrong film entirely.
+- **Exit 1 — no match.** Say so and tidy **without** the tag, using
+  `Show Name (Year)` / `Film Name (Year).ext`. A missing tag costs nothing —
+  Jellyfin falls back to guessing, exactly as it did before. Never invent an id.
+
+Sanity-check the `name` it returns against what you parsed. If it came back
+with a different show (`source: wikidata` searching by title can drift), fix the
+title or pass `--imdb` and rerun.
 
 ## Step 4 — Confirm, then execute
 
 Show the user the complete old → new mapping as a table and **wait for
 confirmation** before executing. Flag anything unresolved (unknown episode,
-missing year, duplicate target names, missing TVmaze data).
+missing year, missing TMDB id, duplicate target names, missing TVmaze data).
+State the show/film the TMDB id resolved to — that is the user's chance to
+catch a wrong match before the library inherits it.
 
 On confirmation, **move** (`mv`) files into the new structure — do not copy.
-Quote every path; release names are full of spaces, brackets and apostrophes.
+Quote every path; release names are full of spaces, brackets and apostrophes —
+and now square brackets too, from the tmdbid tag.
 
 Once the moves succeed, log the mapping for ai-data-store by piping it as JSON
 into `scripts/log_tidy.py` (run from the project root):
 
 ```bash
-echo '{"kind": "tv", "name": "Show Name", "mapping": [{"from": "/old/path.mkv", "to": "/new/path.mkv"}]}' \
+echo '{"kind": "tv", "name": "Show Name", "tmdb_id": "37854", "mapping": [{"from": "/old/path.mkv", "to": "/new/path.mkv"}]}' \
   | .venv/bin/python scripts/log_tidy.py
 ```
 
-`kind` is `"tv"` or `"film"`, `name` is the canonical show/film name, and
-`mapping` lists every file actually moved. This script only prints the
-artifact path it wrote — that output is bookkeeping, not something to relay
-to the user.
+`kind` is `"tv"` or `"film"`, `name` is the canonical show/film name, `tmdb_id`
+is the id you tagged with (omit it if there was none), and `mapping` lists every
+file actually moved. This script only prints the artifact path it wrote — that
+output is bookkeeping, not something to relay to the user.
 
 ## Step 5 — Offer to delete the leftovers
 
@@ -277,3 +351,21 @@ never delete the tidied output.
 
 Report what was tidied and where it now lives, then offer to push it to the
 CASAOS server via the **transfer-files** skill. If the user declines, stop here.
+
+### If the show is already on the server untagged
+
+Older tidies produced a bare `Show Name/`. Pushing `Show Name (Year) [tmdbid-N]/`
+next to it gives Jellyfin **two** entries for the one show, with the episodes
+split between them. Check before transferring:
+
+```bash
+ssh casaos@casaos.local 'ls /mnt/data/tv | grep -i "show name"'
+```
+
+If an untagged directory is there, the fix is to rename the **remote** one to
+the tagged name so the new episodes land inside it. That is a change to the
+user's library, so ask first, then:
+
+```bash
+ssh casaos@casaos.local 'mv "/mnt/data/tv/Show Name" "/mnt/data/tv/Show Name (1999) [tmdbid-37854]"'
+```

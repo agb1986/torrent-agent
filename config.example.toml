@@ -59,6 +59,13 @@ manga = "/media/local/manga"
 url = "http://casaos.local:8096"
 api_key = ""
 
+[tmdb]
+# Optional. scripts/tmdb_id.py tags tidied media with its TMDB id so Jellyfin
+# matches it exactly. Without a key it resolves ids through Wikidata instead,
+# which is enough for anything that is not brand new. Key: themoviedb.org ->
+# Settings -> API. Prefer the TMDB_API_KEY env var over storing it here.
+api_key = ""
+
 [jellyfin.path_map]
 # Server path -> path inside the Jellyfin container (its bind mounts).
 # Paths with no mapping (books, manga) skip the scan.

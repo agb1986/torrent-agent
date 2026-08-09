@@ -89,6 +89,21 @@ Prowlarr API key). Prowlarr + FlareSolverr run via `docker-compose.yml`.
 - The Jellyfin container mounts libraries **separately**:
   `/mnt/data/tv → /media/tv`, `/mnt/data/film → /media/movies`. It is not a
   single-prefix map — path translation uses `[jellyfin.path_map]`.
+- **TMDB ids in names.** `tidy-files` names output
+  `One Piece (1999) [tmdbid-37854]/` (TV) and
+  `Withnail and I (1987) [tmdbid-13446].mkv` (film) so Jellyfin matches by id
+  rather than guessing. `scripts/tmdb_id.py` resolves it: TMDB API if
+  `TMDB_API_KEY` is set, else **Wikidata** — `P4947` (film) / `P4983` (TV),
+  which double as the type filter since a film never carries P4983. Use
+  Wikidata's plain API (`wbsearchentities`, and `haswbstatement:P345=<imdb>`
+  for the exact IMDb route), **not** SPARQL: `query.wikidata.org` returns 502s
+  and 20s timeouts often enough to be unusable. Pass TVmaze's
+  `externals.imdb` when you have it — title search alone can't tell a film
+  from its remake.
+- **Shows already on the server are untagged** — rsyncing a newly tagged
+  directory alongside an old bare `Show Name/` gives Jellyfin two entries with
+  the episodes split. Rename the remote directory first (ask before touching
+  the user's library).
 
 ## Conventions
 

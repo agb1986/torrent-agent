@@ -41,8 +41,9 @@ cd /home/agb86/workspace/repos/torrent-agent && .venv/bin/python scripts/status.
 ## Stage 3 — Tidy (tidy-files)
 
 The finished download is in `~/Downloads`. Follow the **tidy-files** skill to
-repackage it (`Show Name/Season XX/SXXEYY - Episode.ext` for TV,
-`Film Name - Year.ext` for films).
+repackage it (`Show Name (Year) [tmdbid-N]/Season XX/SXXEYY - Episode.ext` for
+TV, `Film Name (Year) [tmdbid-N].ext` for films — the tmdbid tag is what lets
+Jellyfin match the item instead of guessing from the name).
 
 ## Stage 4 — Transfer (transfer-files)
 

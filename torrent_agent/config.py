@@ -49,6 +49,9 @@ DEFAULTS: dict[str, Any] = {
             "/mnt/data/film": "/media/movies",
         },
     },
+    # scripts/tmdb_id.py tags tidied media with its TMDB id. The key is
+    # optional — without one it resolves ids through Wikidata instead.
+    "tmdb": {"api_key": ""},
 }
 
 
@@ -67,13 +70,19 @@ def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
 
     Lets secrets like the Prowlarr API key stay out of config.toml.
     """
-    override: dict[str, Any] = {"search": {"prowlarr": {}}, "jellyfin": {}}
+    override: dict[str, Any] = {
+        "search": {"prowlarr": {}},
+        "jellyfin": {},
+        "tmdb": {},
+    }
     if key := os.environ.get("PROWLARR_API_KEY"):
         override["search"]["prowlarr"]["api_key"] = key
     if url := os.environ.get("PROWLARR_URL"):
         override["search"]["prowlarr"]["url"] = url
     if key := os.environ.get("JELLYFIN_API_KEY"):
         override["jellyfin"]["api_key"] = key
+    if key := os.environ.get("TMDB_API_KEY"):
+        override["tmdb"]["api_key"] = key
     config = _deep_merge(config, override)
 
     # If a key is set but no URL anywhere, assume a local Prowlarr.

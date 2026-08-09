@@ -94,6 +94,13 @@ without a manual library scan. Server destinations and Jellyfin settings live
 in the `[server]` and `[jellyfin]` blocks of `config.toml`; the Jellyfin API
 key is read from `JELLYFIN_API_KEY`.
 
+Tidied names carry a TMDB id — `One Piece (1999) [tmdbid-37854]/Season 01/…`
+for TV, `Withnail and I (1987) [tmdbid-13446].mkv` for films — which Jellyfin
+reads instead of guessing from the title (its guess picks the 2023 live-action
+One Piece, not the 1999 anime). `scripts/tmdb_id.py` resolves the id; it needs
+no API key, falling back to Wikidata, but will use TMDB directly if
+`TMDB_API_KEY` is set.
+
 ## Tests
 
 ```bash
@@ -114,4 +121,5 @@ key is read from `JELLYFIN_API_KEY`.
 | `scripts/status.py` | Deluge download status table |
 | `scripts/bind_vpn.py` | pin Deluge's sockets to the VPN tunnel (kill switch) |
 | `scripts/transfer.py` | rsync to server + Jellyfin scan |
+| `scripts/tmdb_id.py` | resolve a title → TMDB id for Jellyfin-readable names |
 | `scripts/remove_seeding.py` | drop Seeding torrents (keeps data) |
