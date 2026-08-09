@@ -23,8 +23,8 @@ mDNS resolution is intermittently flaky on this box and recovers on its own.
 
 | Flag | Path on server | Holds |
 |---|---|---|
-| `--tv` | `/mnt/data/tv` | `Show Name/Season XX/SXXEYY - Episode.ext` |
-| `--film` | `/mnt/data/film` | flat `Film Name - Year.ext` files |
+| `--tv` | `/mnt/data/tv` | `Show Name (Year) [tmdbid-N]/Season XX/SXXEYY - Episode.ext` |
+| `--film` | `/mnt/data/film` | flat `Film Name (Year) [tmdbid-N].ext` files |
 | `--book` | `/media/local/books` | |
 | `--manga` | `/media/local/manga` | |
 
@@ -44,10 +44,10 @@ user gave you against it:
 
 A title will often match **two** things: the original release directory
 (`Succession (2018) Season 1-4 S01-S04 (1080p Mixed x265 ...)`) and the tidied
-one next to it (`Succession/`). **Transfer the tidied one** — the clean
-`Show Name/Season XX/` tree, or the `Film Name - Year.ext` file. Sending a raw
-release directory puts junk on the server and leaves Jellyfin unable to match
-it.
+one next to it (`Succession (2018) [tmdbid-76331]/`). **Transfer the tidied
+one** — the clean `Show Name (Year) [tmdbid-N]/Season XX/` tree, or the
+`Film Name (Year) [tmdbid-N].ext` file. Sending a raw release directory puts
+junk on the server and leaves Jellyfin unable to match it.
 
 If only an untidied release directory exists, run **tidy-files** first rather
 than transferring it as-is.
@@ -69,11 +69,11 @@ These transfers are long and the user prefers to drive them.
 absolute paths so it works from anywhere:
 
 ```bash
-python3 ~/workspace/repos/torrent-agent/scripts/transfer.py "/path/to/Show Name" --tv
+python3 ~/workspace/repos/torrent-agent/scripts/transfer.py "/path/to/Show Name (1999) [tmdbid-37854]" --tv
 ```
 
 ```bash
-python3 ~/workspace/repos/torrent-agent/scripts/transfer.py "/path/to/Film Name - 1987.mkv" --film
+python3 ~/workspace/repos/torrent-agent/scripts/transfer.py "/path/to/Film Name (1987) [tmdbid-13446].mkv" --film
 ```
 
 It rsyncs with `--archive --verbose --progress --human-readable`, triggers the
