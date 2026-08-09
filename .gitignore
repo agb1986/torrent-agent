@@ -224,5 +224,8 @@ output.md
 # torrent-agent local config (may contain secrets)
 config.toml
 
+# ai-data-store artifact logging (local scratch, not shared)
+/tmp/
+
 # Claude Code per-user settings (local approvals; not shared)
 .claude/settings.local.json

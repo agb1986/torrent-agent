@@ -1,0 +1,26 @@
+{
+  "source": "torrent-agent",
+  "rules": [
+    {
+      "pattern": "/tmp/added_[^/]*\\.json$",
+      "description": [
+        "Added - {content.added.0.title} ({content.added.0.resolution})",
+        "Added - {content.request}"
+      ],
+      "keywords": ["get-torrents", "added"]
+    },
+    {
+      "pattern": "/tmp/removed_seeding_[^/]*\\.json$",
+      "description": "Removed seeding torrents",
+      "keywords": ["remove-seeding-torrents", "removed_seeding"]
+    },
+    {
+      "pattern": "/tmp/tidy_[^/]*\\.json$",
+      "description": [
+        "Tidied - {content.name}",
+        "Tidied files"
+      ],
+      "keywords": ["tidy-files", "{content.kind}"]
+    }
+  ]
+}

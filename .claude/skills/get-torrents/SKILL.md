@@ -33,7 +33,10 @@ bash -ic 'set -a; . .env 2>/dev/null; set +a; .venv/bin/python -m torrent_agent 
 
 ## Step 3 — Interpret and relay the output
 
-The agent prints a plain-text summary.  Relay it to the user as-is.
+The agent prints a plain-text summary.  Relay it to the user as-is — **except**
+when a torrent was added: the first output line is then an internal logging
+artifact path (an absolute path ending `.json`, written for ai-data-store).
+Skip that line and relay only the summary that follows it.
 
 Common outcomes and what to tell the user:
 
