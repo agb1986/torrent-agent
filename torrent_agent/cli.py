@@ -8,9 +8,14 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .agent import build_agent
 from .config import load_config
+
+# Anchor artifacts to the repo, not the cwd — the ai-data-store hook watches
+# this repo's tmp/ directory, and the CLI may be invoked from anywhere.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _slugify(text: str, max_len: int = 40) -> str:
@@ -19,9 +24,10 @@ def _slugify(text: str, max_len: int = 40) -> str:
 
 
 def _write_added_artifact(request: str, added: list[dict]) -> str:
-    os.makedirs("tmp", exist_ok=True)
+    tmp_dir = _REPO_ROOT / "tmp"
+    tmp_dir.mkdir(exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    path = os.path.join("tmp", f"added_{_slugify(request)}_{timestamp}.json")
+    path = tmp_dir / f"added_{_slugify(request)}_{timestamp}.json"
     with open(path, "w") as f:
         json.dump({"request": request, "added": added}, f, indent=2)
     return os.path.abspath(path)
@@ -65,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
         result = agent.run(request)
     except KeyboardInterrupt:
         return 130
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     if agent.added:
         print(_write_added_artifact(request, agent.added))
     print(result)

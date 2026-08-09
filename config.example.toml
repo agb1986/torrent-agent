@@ -2,8 +2,8 @@
 # config.toml is gitignored because it can hold secrets.
 
 [anthropic]
-# The agent's brain. Defaults to the most capable model.
-model = "claude-opus-4-8"
+# The agent's brain. Defaults to the current Opus.
+model = "claude-opus-5"
 
 [search]
 # "auto"  -> use Prowlarr if configured, otherwise fall back to apibay (TPB)
@@ -38,3 +38,29 @@ prefer_codecs = ["x265", "hevc", "h265"]
 max_episode_size_gb = 20
 # Drop results with fewer seeders than this.
 min_seeders = 1
+
+[server]
+# The media server scripts/transfer.py pushes to over rsync/SSH.
+user = "casaos"
+host = "casaos.local"
+ssh_key = "~/.ssh/id_rsa_ha"
+
+[server.destinations]
+# transfer.py grows one --flag per entry here.
+film = "/mnt/data/film"
+tv = "/mnt/data/tv"
+book = "/media/local/books"
+manga = "/media/local/manga"
+
+[jellyfin]
+# Jellyfin on the media server; transfer.py asks it to scan after a transfer.
+# API key: Jellyfin Dashboard -> API Keys. Prefer the JELLYFIN_API_KEY env var
+# over storing it here.
+url = "http://casaos.local:8096"
+api_key = ""
+
+[jellyfin.path_map]
+# Server path -> path inside the Jellyfin container (its bind mounts).
+# Paths with no mapping (books, manga) skip the scan.
+"/mnt/data/tv" = "/media/tv"
+"/mnt/data/film" = "/media/movies"

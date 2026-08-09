@@ -27,7 +27,13 @@ context window.
 - **Deluge daemon:** `deluged` must be running on `127.0.0.1:58846`. Creds are
   read from `~/.config/deluge/auth` automatically.
 - **VPN gate:** PIA must report `Connected` (`piactl`) or `add_torrent` refuses.
-  Bring the whole stack up with `scripts/start.sh` (PIA → deluged → compose).
+  Bring the whole stack up with `scripts/start.sh` (PIA → bind → deluged →
+  compose).
+- **VPN binding (the actual kill switch):** the `check_vpn` gate only covers
+  add-time. `scripts/bind_vpn.py` pins Deluge's `listen_interface` and
+  `outgoing_interface` to the live tunnel **device**, so a mid-download VPN
+  drop kills transfers instead of rerouting them. `start.sh` applies it via
+  `deluge_bind_vpn` before `deluge_up`; `--check` verifies (also in `health`).
 
 ## Search stack
 
@@ -40,6 +46,23 @@ Prowlarr API key). Prowlarr + FlareSolverr run via `docker-compose.yml`.
   "blocked by CloudFlare Protection". YTS needs no tag.
 
 ## Gotchas learned the hard way
+
+- **Bind Deluge by interface NAME, never by IP.** Verified live: a PIA
+  reconnect moved the tunnel from `10.11.3.195` to `10.189.2.207`, and
+  `piactl get vpnip` reports the *public exit* IP (155.2.x.x), which is on no
+  local interface. A name binding survived the reconnect and libtorrent
+  rebound the listen socket by itself — **no deluged restart needed** after a
+  VPN flap.
+- **Why an unbound Deluge leaks:** PIA overlays `0.0.0.0/1` + `128.0.0.0/1` on
+  tun0 and leaves the LAN default route intact underneath. When the tunnel
+  drops those two routes vanish and traffic silently resumes over `wlp1s0` —
+  no error, no interruption. Confirmed by test: bound, the byte counter froze
+  while disconnected even though the route had flipped to the LAN device.
+- **Deluge's `core.conf` is not plain JSON** — it's two concatenated objects
+  (`{"file","format"}` then the settings). `json.load()` fails on it; use
+  `JSONDecoder.raw_decode` twice (see `deluge._binding_from_file`). Also,
+  deluged rewrites the file on shutdown, so edits to a *running* daemon's
+  config get clobbered — set it over RPC instead (`bind_vpn.py` does both).
 
 - **EZTV magnets:** Prowlarr returns EZTV's `magnetUrl` as a *redirect* URL
   (`http://localhost:9696/...`), not a real magnet — the actual magnet is in the
@@ -55,9 +78,27 @@ Prowlarr API key). Prowlarr + FlareSolverr run via `docker-compose.yml`.
 - **Multi-add:** the system prompt picks a single best release by default, but the
   model will add one torrent per episode when explicitly asked for "all episodes".
 
+## Media server (CASAOS + Jellyfin)
+
+- `scripts/transfer.py` rsyncs to the CASAOS server and then notifies
+  **Jellyfin** (`http://casaos.local:8096`, host networking) via
+  `POST /Library/Media/Updated`. Server/Jellyfin settings live in the
+  `[server]`/`[jellyfin]` blocks of `config.toml`; the API key comes from
+  `JELLYFIN_API_KEY` (behind the same interactive-shell guard as the other
+  keys).
+- The Jellyfin container mounts libraries **separately**:
+  `/mnt/data/tv → /media/tv`, `/mnt/data/film → /media/movies`. It is not a
+  single-prefix map — path translation uses `[jellyfin.path_map]`.
+
 ## Conventions
 
-- Stdlib + `requests`/`anthropic`/`deluge-client`/`guessit` only; no framework.
-- Models: default `claude-opus-4-8`, adaptive thinking, effort high (`agent.py`).
-- After touching search/ranking, sanity-check against live Prowlarr rather than
-  only unit tests — several bugs here only show up with real indexer responses.
+- Stdlib + `requests`/`anthropic`/`deluge-client`/`guessit` only; no framework
+  (`pytest` is dev-only).
+- Models: default `claude-opus-5`, adaptive thinking, effort high, top-level
+  prompt caching (`agent.py`).
+- Search result ids are namespaced per search (`s1r1`, `s2r1`, …) and the
+  registry is append-only — don't revert to bare `r1` ids, stale ids from an
+  earlier search would silently resolve to the wrong torrent.
+- Tests: `.venv/bin/python -m pytest tests/`. After touching search/ranking,
+  also sanity-check against live Prowlarr — several bugs here only show up
+  with real indexer responses.

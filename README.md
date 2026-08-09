@@ -21,7 +21,7 @@ short id) so they never bloat the context window.
 ## Setup
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+virtualenv .venv && source .venv/bin/activate   # NOT python -m venv: this box has no ensurepip
 pip install -r requirements.txt
 cp config.example.toml config.toml      # then edit
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -53,6 +53,20 @@ VPN detection uses PIA's `piactl`. "Active" means PIA reports `Connected` on
 **this** machine — the same machine Deluge runs on. If `piactl` is unavailable
 the agent falls back to checking for a `tun*`/`wg*` tunnel interface.
 
+That check only gates the *moment of adding*, though. For protection against
+the VPN dropping mid-download, Deluge's peer sockets are bound to the tunnel
+device itself:
+
+```bash
+python scripts/bind_vpn.py          # detect tunnel + bind (start.sh does this)
+python scripts/bind_vpn.py --check  # verify; exit 1 if unbound or mismatched
+```
+
+Bound, a VPN drop stops transfers dead. Unbound, they silently continue over
+your LAN — PIA leaves the normal default route in place beneath its own, so
+there is no error when the tunnel disappears. Binding is by interface *name*,
+which survives the address change on every reconnect.
+
 ## Usage
 
 ```bash
@@ -70,6 +84,22 @@ Edit the `[preferences]` block in `config.toml`: resolution order, preferred
 codecs, max single-episode size, and the seeder floor. See
 `config.example.toml` for the annotated defaults.
 
+## Media pipeline (beyond fetching)
+
+The repo also carries the delivery half of the pipeline, driven by Claude Code
+skills (`.claude/skills/`): check download progress (`scripts/status.py`),
+tidy finished downloads into clean names, rsync them to the CASAOS server
+(`scripts/transfer.py`), and notify **Jellyfin** so the new media appears
+without a manual library scan. Server destinations and Jellyfin settings live
+in the `[server]` and `[jellyfin]` blocks of `config.toml`; the Jellyfin API
+key is read from `JELLYFIN_API_KEY`.
+
+## Tests
+
+```bash
+.venv/bin/python -m pytest tests/
+```
+
 ## Layout
 
 | File | Role |
@@ -77,7 +107,11 @@ codecs, max single-episode size, and the seeder floor. See
 | `agent.py`   | Claude tool-use loop + tool definitions |
 | `search.py`  | Prowlarr / apibay clients → normalized results |
 | `ranking.py` | `guessit` parse + scoring |
-| `vpn.py`     | PIA / interface VPN check |
-| `deluge.py`  | add magnet via daemon RPC |
+| `vpn.py`     | PIA / interface VPN check + tunnel device detection |
+| `deluge.py`  | daemon RPC: shared connect + add magnet |
 | `config.py`  | defaults ← `config.toml` ← env |
 | `cli.py`     | entrypoint |
+| `scripts/status.py` | Deluge download status table |
+| `scripts/bind_vpn.py` | pin Deluge's sockets to the VPN tunnel (kill switch) |
+| `scripts/transfer.py` | rsync to server + Jellyfin scan |
+| `scripts/remove_seeding.py` | drop Seeding torrents (keeps data) |
