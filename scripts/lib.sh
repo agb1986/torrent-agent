@@ -13,6 +13,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROWLARR_URL="${PROWLARR_URL:-http://localhost:9696}"
 FLARESOLVERR_URL="${FLARESOLVERR_URL:-http://localhost:8191}"
 DELUGE_PORT="${DELUGE_PORT:-58846}"
+VENV_PY="$REPO_DIR/.venv/bin/python"
 
 # --- logging ---------------------------------------------------------------
 if [ -t 1 ]; then
@@ -62,6 +63,22 @@ vpn_down() {
 }
 
 # --- 2. Deluge daemon ------------------------------------------------------
+# Bind Deluge's peer traffic to the live tunnel device, so a VPN drop kills
+# transfers instead of silently rerouting them over the LAN (PIA keeps the LAN
+# default route underneath its 0.0.0.0/1 + 128.0.0.0/1 split).
+#
+# MUST run while the VPN is up and BEFORE deluge_up: if the device is missing
+# when deluged starts, libtorrent has nothing to bind to and won't listen.
+deluge_bind_vpn() {
+  [ -x "$VENV_PY" ] || { warn "no .venv — skipping VPN binding"; return 0; }
+  local out
+  if out="$("$VENV_PY" "$REPO_DIR/scripts/bind_vpn.py" 2>&1)"; then
+    ok "Deluge bound to $(printf '%s' "$out" | grep -o 'to [a-z0-9]*' | head -1 | cut -d' ' -f2)"
+  else
+    warn "Could not bind Deluge to the VPN: $out"
+  fi
+}
+
 deluge_up() {
   command -v deluged >/dev/null 2>&1 || { warn "deluged not installed — skipping"; return 0; }
   if port_in_use "$DELUGE_PORT"; then ok "Deluge already listening on $DELUGE_PORT"; return 0; fi
@@ -114,6 +131,15 @@ health() {
   fi
   if port_in_use "$DELUGE_PORT"; then ok "Deluge        listening on 127.0.0.1:$DELUGE_PORT"
   else warn "Deluge        not listening on $DELUGE_PORT"; fi
+  if [ -x "$VENV_PY" ]; then
+    local bind_out
+    bind_out="$("$VENV_PY" "$REPO_DIR/scripts/bind_vpn.py" --check 2>&1)"
+    if printf '%s' "$bind_out" | grep -q '^OK:'; then
+      ok "VPN binding   $(printf '%s' "$bind_out" | grep '^OK:' | sed 's/^OK: Deluge is //')"
+    else
+      warn "VPN binding   $(printf '%s' "$bind_out" | grep -E '^(MISMATCH|No VPN|Could not)' | head -1)"
+    fi
+  fi
   local key code; key="$(prowlarr_key)"
   code="$(curl -s -o /dev/null -w '%{http_code}' -H "X-Api-Key: $key" "$PROWLARR_URL/api/v1/system/status" 2>/dev/null)"
   if [ "$code" = "200" ]; then ok "Prowlarr      HTTP 200 at $PROWLARR_URL"

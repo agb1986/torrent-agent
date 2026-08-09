@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULTS: dict[str, Any] = {
-    "anthropic": {"model": "claude-opus-4-8"},
+    "anthropic": {"model": "claude-opus-5"},
     "search": {
         "backend": "auto",
         "prowlarr": {"url": "", "api_key": ""},
@@ -25,6 +25,29 @@ DEFAULTS: dict[str, Any] = {
         "prefer_codecs": ["x265", "hevc", "h265"],
         "max_episode_size_gb": 20,
         "min_seeders": 1,
+    },
+    # The CASAOS media server that scripts/transfer.py pushes to.
+    "server": {
+        "user": "casaos",
+        "host": "casaos.local",
+        "ssh_key": "~/.ssh/id_rsa_ha",
+        "destinations": {
+            "film": "/mnt/data/film",
+            "tv": "/mnt/data/tv",
+            "book": "/media/local/books",
+            "manga": "/media/local/manga",
+        },
+    },
+    # Jellyfin (on the same server) is told to scan after each transfer.
+    # path_map translates server paths into the paths the Jellyfin container
+    # sees (its bind mounts). Paths with no mapping (books, manga) are skipped.
+    "jellyfin": {
+        "url": "http://casaos.local:8096",
+        "api_key": "",
+        "path_map": {
+            "/mnt/data/tv": "/media/tv",
+            "/mnt/data/film": "/media/movies",
+        },
     },
 }
 
@@ -44,11 +67,13 @@ def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
 
     Lets secrets like the Prowlarr API key stay out of config.toml.
     """
-    override: dict[str, Any] = {"search": {"prowlarr": {}}}
+    override: dict[str, Any] = {"search": {"prowlarr": {}}, "jellyfin": {}}
     if key := os.environ.get("PROWLARR_API_KEY"):
         override["search"]["prowlarr"]["api_key"] = key
     if url := os.environ.get("PROWLARR_URL"):
         override["search"]["prowlarr"]["url"] = url
+    if key := os.environ.get("JELLYFIN_API_KEY"):
+        override["jellyfin"]["api_key"] = key
     config = _deep_merge(config, override)
 
     # If a key is set but no URL anywhere, assume a local Prowlarr.

@@ -46,7 +46,8 @@ A title will often match **two** things: the original release directory
 (`Succession (2018) Season 1-4 S01-S04 (1080p Mixed x265 ...)`) and the tidied
 one next to it (`Succession/`). **Transfer the tidied one** — the clean
 `Show Name/Season XX/` tree, or the `Film Name - Year.ext` file. Sending a raw
-release directory puts junk on the server and leaves Plex unable to match it.
+release directory puts junk on the server and leaves Jellyfin unable to match
+it.
 
 If only an untidied release directory exists, run **tidy-files** first rather
 than transferring it as-is.
@@ -76,7 +77,8 @@ python3 ~/workspace/repos/torrent-agent/scripts/transfer.py "/path/to/Film Name 
 ```
 
 It rsyncs with `--archive --verbose --progress --human-readable`, triggers the
-Plex scan itself when the transfer succeeds, and prints elapsed time at the end.
+Jellyfin scan itself when the transfer succeeds, and prints elapsed time at the
+end.
 More than one destination flag can be passed; each runs as a separate transfer.
 
 Nothing further to do — the script handles the scan.
@@ -114,58 +116,69 @@ Nothing further to do — the script handles the scan.
 
 4. Confirm success from the rsync output and report the transferred size.
 
-5. Trigger a Plex scan so the new file appears in the library — see below.
+5. Trigger a Jellyfin scan so the new file appears in the library — see below.
    `transfer.py` does this by itself, but a direct rsync does not.
 
-## Triggering a Plex scan
+## Triggering a Jellyfin scan
 
-Plex runs on the server at `http://casaos.local:32400`, authenticated with the
-`X-Plex-Token` header or query parameter. The token is in the global env as
-`PLEX_TOKEN`, which sits behind the non-interactive guard in `~/.bashrc` — so
-reach it through an interactive shell (`bash -ic '...'`), the same as
+Jellyfin runs on the server at `http://casaos.local:8096`, authenticated with
+the `X-Emby-Token` header. The API key is in the global env as
+`JELLYFIN_API_KEY`, which sits behind the non-interactive guard in `~/.bashrc`
+— so reach it through an interactive shell (`bash -ic '...'`), the same as
 `ANTHROPIC_API_KEY`.
 
-Use a **partial scan**, which walks only the directory just written instead of
-the whole library:
+Use the **targeted media-updated endpoint** (the same one Sonarr/Radarr use),
+which tells Jellyfin exactly which path changed instead of rescanning the
+whole library:
 
 ```
-GET /library/sections/{key}/refresh?path={container-path}&X-Plex-Token={token}
+POST /Library/Media/Updated
+{"Updates": [{"Path": "<container-path>", "UpdateType": "Created"}]}
 ```
 
 ```bash
 bash -ic 'curl -s -o /dev/null -w "%{http_code}\n" \
-  "http://casaos.local:32400/library/sections/6/refresh?path=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "/Media/tv/Show Name")&X-Plex-Token=$PLEX_TOKEN"'
+  -X POST "http://casaos.local:8096/Library/Media/Updated" \
+  -H "X-Emby-Token: $JELLYFIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"Updates\":[{\"Path\":\"/media/tv/Show Name\",\"UpdateType\":\"Created\"}]}"'
 ```
 
 Two things make this go wrong silently:
 
-- **Paths must be translated.** The plex container bind-mounts `/mnt/data` as
-  `/Media`, so scan `/Media/tv/Show Name`, never `/mnt/data/tv/Show Name`.
-- **Plex answers `200` regardless** — including for a path it does not
-  recognise. The status code only says the request was accepted. (`404` means a
-  bad section key, `401` a bad or missing token.)
+- **Paths must be translated.** The Jellyfin container mounts the libraries
+  separately: `/mnt/data/tv` → `/media/tv` and `/mnt/data/film` →
+  `/media/movies`. So scan `/media/tv/Show Name` or
+  `/media/movies/Film - Year.mkv`, never a `/mnt/data/...` path. (This is NOT
+  the single-prefix mapping the old Plex setup used.)
+- **Jellyfin answers `204` regardless** — including for a path it does not
+  recognise. The status code only says the request was accepted. (`401` means
+  a bad or missing token.)
 
-Section keys on this server: **6** = TV Shows (`/Media/tv`), **7** = Movies
-(`/Media/film`). Re-derive them if the libraries are ever rebuilt:
+Fallback if the targeted update misbehaves — full library scan:
 
 ```bash
-bash -ic 'curl -s "http://casaos.local:32400/library/sections?X-Plex-Token=$PLEX_TOKEN"'
+bash -ic 'curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  "http://casaos.local:8096/Library/Refresh" -H "X-Emby-Token: $JELLYFIN_API_KEY"'
 ```
 
-`/media/local/books` and `/media/local/manga` are not Plex libraries — no scan
-applies to those.
+`/media/local/books` and `/media/local/manga` are not Jellyfin libraries — no
+scan applies to those.
 
 ### Confirming the scan worked
 
-Because the status code proves nothing, verify by querying the section for the
-title. `leafCount` is the number of episodes Plex has indexed:
+Because the status code proves nothing, verify by searching for the title.
+`TotalRecordCount` > 0 means Jellyfin has indexed it:
 
 ```bash
-bash -ic 'curl -s "http://casaos.local:32400/library/sections/6/all?title=Succession&X-Plex-Token=$PLEX_TOKEN"' \
-  | grep -o 'title="[^"]*"\|leafCount="[0-9]*"'
+bash -ic 'curl -s -H "X-Emby-Token: $JELLYFIN_API_KEY" \
+  "http://casaos.local:8096/Items?searchTerm=Succession&recursive=true&includeItemTypes=Series"' \
+  | python3 -m json.tool | grep -E "\"Name\"|\"TotalRecordCount\""
 ```
 
-Scans are not instant on a large directory; if the count looks short, wait a few
+(Use `includeItemTypes=Movie` for films, or `Episode` to count episodes.)
+
+Scans are not instant on a large directory; if nothing shows up, wait a few
 seconds and query again before assuming something failed.
 
 ## Notes

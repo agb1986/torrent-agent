@@ -7,14 +7,62 @@ localclient credentials work without extra setup.
 
 from __future__ import annotations
 
+import json
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from deluge_client import DelugeRPCClient
 
 
 class DelugeError(RuntimeError):
     pass
+
+
+BINDING_KEYS = ("listen_interface", "outgoing_interface")
+
+
+def core_conf_path() -> Path:
+    return Path.home() / ".config" / "deluge" / "core.conf"
+
+
+def _binding_from_file() -> dict[str, str] | None:
+    """Read the interface binding straight out of core.conf.
+
+    The file is two concatenated JSON objects — a {"file","format"} header
+    followed by the settings — so it can't be handed to json.load().
+    """
+    try:
+        raw = core_conf_path().read_text()
+    except OSError:
+        return None
+    decoder = json.JSONDecoder()
+    try:
+        _, idx = decoder.raw_decode(raw)
+        body, _ = decoder.raw_decode(raw[idx:].lstrip())
+    except ValueError:
+        return None
+    return {key: str(body.get(key, "")) for key in BINDING_KEYS}
+
+
+def deluge_binding(config: dict[str, Any]) -> dict[str, str] | None:
+    """What Deluge is currently bound to, or None if it can't be determined.
+
+    A running daemon is authoritative — its in-memory config may differ from
+    core.conf, which is only rewritten on shutdown. Falls back to the file
+    when the daemon is down.
+    """
+    try:
+        with connect(config) as client:
+            values = client.call("core.get_config_values", list(BINDING_KEYS))
+    except Exception:
+        return _binding_from_file()
+
+    out = {}
+    for key in BINDING_KEYS:
+        value = values.get(key.encode(), values.get(key, ""))
+        out[key] = value.decode() if isinstance(value, bytes) else str(value)
+    return out
 
 
 def _read_localclient_auth() -> tuple[str, str] | None:
@@ -48,8 +96,9 @@ def _resolve_credentials(cfg: dict[str, Any]) -> tuple[str, str]:
     )
 
 
-def add_torrent(result_link: str, config: dict[str, Any]) -> str:
-    """Add a magnet URI or torrent URL to Deluge. Returns the torrent id."""
+@contextmanager
+def connect(config: dict[str, Any]) -> Iterator[DelugeRPCClient]:
+    """Yield a connected Deluge RPC client, disconnecting on exit."""
     cfg = config.get("deluge", {})
     username, password = _resolve_credentials(cfg)
     client = DelugeRPCClient(
@@ -66,19 +115,25 @@ def add_torrent(result_link: str, config: dict[str, Any]) -> str:
             f"{cfg.get('host')}:{cfg.get('port')} ({exc}). Is `deluged` running "
             f"with the daemon RPC enabled?"
         ) from exc
-
     try:
-        if result_link.startswith("magnet:"):
-            tid = client.call("core.add_torrent_magnet", result_link, {})
-        else:
-            tid = client.call("core.add_torrent_url", result_link, {})
-    except Exception as exc:
-        raise DelugeError(f"Deluge rejected the torrent: {exc}") from exc
+        yield client
     finally:
         try:
             client.disconnect()
         except Exception:
             pass
+
+
+def add_torrent(result_link: str, config: dict[str, Any]) -> str:
+    """Add a magnet URI or torrent URL to Deluge. Returns the torrent id."""
+    with connect(config) as client:
+        try:
+            if result_link.startswith("magnet:"):
+                tid = client.call("core.add_torrent_magnet", result_link, {})
+            else:
+                tid = client.call("core.add_torrent_url", result_link, {})
+        except Exception as exc:
+            raise DelugeError(f"Deluge rejected the torrent: {exc}") from exc
 
     if tid is None:
         raise DelugeError(

@@ -7,6 +7,7 @@ never need to care where a result came from.
 from __future__ import annotations
 
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -214,20 +215,30 @@ def search(query: str, media_type: str, config: dict[str, Any]) -> list[TorrentR
     if backend == "apibay":
         return _search_apibay(query, media_type)
 
-    # auto: query every available source, merge, and tolerate one failing.
-    results: list[TorrentResult] = []
-    errors: list[str] = []
-    if prowlarr_ready:
-        try:
-            results += _search_prowlarr(
-                query, media_type, prowlarr["url"], prowlarr["api_key"]
+    # auto: query every available source in parallel, merge, and tolerate one
+    # failing. Sequential queries cost up to 2x _TIMEOUT before the model sees
+    # anything.
+    tasks = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        if prowlarr_ready:
+            tasks.append(
+                pool.submit(
+                    _search_prowlarr,
+                    query,
+                    media_type,
+                    prowlarr["url"],
+                    prowlarr["api_key"],
+                )
             )
-        except SearchError as exc:
-            errors.append(str(exc))
-    try:
-        results += _search_apibay(query, media_type)
-    except SearchError as exc:
-        errors.append(str(exc))
+        tasks.append(pool.submit(_search_apibay, query, media_type))
+
+        results: list[TorrentResult] = []
+        errors: list[str] = []
+        for task in tasks:
+            try:
+                results += task.result()
+            except SearchError as exc:
+                errors.append(str(exc))
 
     if not results and errors:
         raise SearchError("; ".join(errors))

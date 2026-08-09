@@ -6,7 +6,8 @@ Selection priorities, in order:
   3. Seeders
   4. Recency
 
-Hard filters drop results below the seeder floor and oversized single episodes.
+Hard filters drop results below the seeder floor, oversized single episodes,
+and (for movies) cinema recordings — CAM/telesync/telecine.
 """
 
 from __future__ import annotations
@@ -76,6 +77,27 @@ def _is_single_episode(info: dict[str, Any]) -> bool:
     return isinstance(episode, int)
 
 
+# guessit `source` values for in-cinema recordings. A 1080p HDCAM parses as
+# 1080p and would otherwise outrank a real WEB-DL despite being unwatchable.
+_CAM_SOURCES = ("camera", "telesync", "telecine", "workprint")
+
+
+def _is_cam(info: dict[str, Any]) -> bool:
+    source = info.get("source")
+    sources = source if isinstance(source, list) else [source]
+    return any(
+        bad in str(s).lower() for s in sources if s for bad in _CAM_SOURCES
+    )
+
+
+def _is_proper(info: dict[str, Any]) -> bool:
+    other = info.get("other")
+    others = other if isinstance(other, list) else [other]
+    return any(
+        str(o).lower() in ("proper", "repack") for o in others if o
+    )
+
+
 def rank(
     results: list[TorrentResult],
     preferences: dict[str, Any],
@@ -94,6 +116,11 @@ def rank(
             continue
 
         info = _parse(res.title)
+
+        # Drop cinema recordings (CAM/TS/TC) for movie searches outright.
+        if media_type == "movie" and _is_cam(info):
+            continue
+
         resolution = _normalize_resolution(info.get("screen_size"))
         codec = info.get("video_codec")
         codec = str(codec) if codec else None
@@ -125,7 +152,15 @@ def rank(
                 codec=codec,
                 season=info.get("season") if isinstance(info.get("season"), int) else None,
                 episode=info.get("episode") if isinstance(info.get("episode"), int) else None,
-                score=(res_score, codec_score, float(res.seeders), recency),
+                # Proper/repack only breaks ties below seeders — it should
+                # never pick a 2-seeder PROPER over a well-seeded original.
+                score=(
+                    res_score,
+                    codec_score,
+                    float(res.seeders),
+                    1.0 if _is_proper(info) else 0.0,
+                    recency,
+                ),
             )
         )
 

@@ -14,7 +14,7 @@ import anthropic
 
 from . import deluge, ranking, search
 from .config import anthropic_api_key
-from .vpn import vpn_status
+from .vpn import tunnel_device, vpn_status
 
 _MAX_TURNS = 16
 # Cap on results shown to the model. Kept generous so a "grab every episode"
@@ -31,10 +31,15 @@ Workflow:
    or "any"). Results come back already ranked best-first.
 2. Pick the single best candidate. Ranking priorities, in order: resolution
    preference, preferred codec, seeders, recency. Prefer exact season/episode
-   matches when the user asked for a specific one.
+   matches when the user asked for a specific one. Use judgment on the
+   resolution/seeder trade-off: a well-seeded lower resolution beats a nearly
+   dead higher one (e.g. 720p with hundreds of seeders over 1080p with 1-2).
 3. Before adding, the download must go through the VPN. Call check_vpn. If it is
    not active, DO NOT add the torrent — tell the user to start their VPN (PIA)
    first, then stop. (add_torrent also refuses when the VPN is down, as a guard.)
+   If check_vpn reports deluge_bound_to_vpn as false, still proceed, but mention
+   in your summary that Deluge is not bound to the tunnel and that running
+   scripts/bind_vpn.py would protect downloads if the VPN drops.
 4. If the VPN is active, call add_torrent with the chosen result_id.
 
 Be concise. State which release you chose and why (resolution / seeders / age),
@@ -66,7 +71,10 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "check_vpn",
-        "description": "Check whether the VPN tunnel is currently active.",
+        "description": (
+            "Check whether the VPN tunnel is active, and whether Deluge's "
+            "traffic is bound to it (leak protection if the VPN later drops)."
+        ),
         "input_schema": {"type": "object", "properties": {}},
     },
     {
@@ -93,9 +101,10 @@ class TorrentAgent:
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.client = anthropic.Anthropic()
-        self.model = config.get("anthropic", {}).get("model", "claude-opus-4-8")
+        self.model = config.get("anthropic", {}).get("model", "claude-opus-5")
         self._results: dict[str, search.TorrentResult] = {}
         self._result_meta: dict[str, dict] = {}
+        self._search_gen = 0
         self.added: list[dict] = []
 
     # --- tool implementations ------------------------------------------- #
@@ -106,11 +115,13 @@ class TorrentAgent:
             return json.dumps({"error": str(exc)})
 
         scored = ranking.rank(raw, self.config.get("preferences", {}), media_type)
-        self._results.clear()
-        self._result_meta.clear()
+        # Ids are namespaced per search (s1r1, s2r1, ...) and the registry is
+        # append-only. Reusing bare r1... across searches meant a stale id from
+        # an earlier search silently resolved to a different torrent.
+        self._search_gen += 1
         out = []
         for i, s in enumerate(scored[:_TOP_N]):
-            rid = f"r{i + 1}"
+            rid = f"s{self._search_gen}r{i + 1}"
             self._results[rid] = s.result
             size_gb = (
                 round(s.result.size_bytes / (1024**3), 2)
@@ -137,7 +148,26 @@ class TorrentAgent:
 
     def _tool_check_vpn(self) -> str:
         provider = self.config.get("vpn", {}).get("provider", "pia")
-        return json.dumps(vpn_status(provider).as_dict())
+        out = vpn_status(provider).as_dict()
+        # Whether Deluge is actually pinned to the tunnel, not just whether the
+        # tunnel is up — an unbound Deluge keeps downloading over the LAN if
+        # the VPN drops mid-transfer.
+        device = tunnel_device()
+        binding = deluge.deluge_binding(self.config)
+        out["tunnel_device"] = device
+        if binding is None:
+            out["deluge_bound_to_vpn"] = None
+        else:
+            out["deluge_bound_to_vpn"] = bool(
+                device and all(binding[k] == device for k in deluge.BINDING_KEYS)
+            )
+            if not out["deluge_bound_to_vpn"]:
+                out["binding_warning"] = (
+                    "Deluge is not bound to the VPN tunnel — downloads would "
+                    "continue over the LAN if the VPN drops. Run "
+                    "scripts/bind_vpn.py to fix. This does not block adding."
+                )
+        return json.dumps(out)
 
     def _tool_add_torrent(self, result_id: str) -> str:
         result = self._results.get(result_id)
@@ -196,21 +226,43 @@ class TorrentAgent:
         ]
         final_text = ""
         for _ in range(_MAX_TURNS):
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=16000,
-                thinking={"type": "adaptive"},
-                output_config={"effort": "high"},
-                system=SYSTEM_PROMPT,
-                tools=TOOLS,
-                messages=messages,
-            )
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=16000,
+                    thinking={"type": "adaptive"},
+                    output_config={"effort": "high"},
+                    # Auto-cache the prefix: the loop re-sends tools + system +
+                    # the whole history every turn, so repeat turns read ~90%
+                    # of their input from cache instead of paying full price.
+                    cache_control={"type": "ephemeral"},
+                    system=SYSTEM_PROMPT,
+                    tools=TOOLS,
+                    messages=messages,
+                )
+            except anthropic.APIConnectionError as exc:
+                raise RuntimeError(
+                    f"Could not reach the Anthropic API: {exc}"
+                ) from exc
+            except anthropic.RateLimitError as exc:
+                raise RuntimeError(
+                    "Anthropic API rate limit hit — wait a moment and re-run."
+                ) from exc
+            except anthropic.APIStatusError as exc:
+                raise RuntimeError(
+                    f"Anthropic API error ({exc.status_code}): {exc.message}"
+                ) from exc
             messages.append({"role": "assistant", "content": response.content})
 
             text_parts = [b.text for b in response.content if b.type == "text"]
             if text_parts:
                 final_text = "\n".join(text_parts)
 
+            if response.stop_reason == "refusal":
+                final_text = final_text or (
+                    "The model declined this request (safety refusal)."
+                )
+                break
             if response.stop_reason != "tool_use":
                 break
 

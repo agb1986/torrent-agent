@@ -15,6 +15,8 @@ from pathlib import Path
 
 _PIACTL_CANDIDATES = ("piactl", "/opt/piavpn/bin/piactl")
 _TUNNEL_PREFIXES = ("tun", "wg", "pia")
+# Public address used only as a routing probe; nothing is sent to it.
+_ROUTE_PROBE_ADDR = "1.1.1.1"
 
 
 @dataclass
@@ -57,6 +59,43 @@ def _tunnel_interfaces() -> list[str]:
     except OSError:
         return []
     return [n for n in names if n.startswith(_TUNNEL_PREFIXES)]
+
+
+def tunnel_device() -> str | None:
+    """Return the interface name currently carrying outbound traffic, if it's a VPN.
+
+    Asks the kernel where traffic to a public address would actually go, which
+    is stronger evidence than "a tun* interface exists" — PIA layers
+    0.0.0.0/1 + 128.0.0.0/1 over the LAN default route, so the answer flips
+    back to the LAN device the moment the tunnel drops.
+
+    Returns the device *name* (tun0, wgpia0). Never an address: the tunnel IP
+    changes on every reconnect, and piactl's `vpnip` is the public exit IP,
+    which is not on any local interface.
+    """
+    try:
+        proc = subprocess.run(
+            ["ip", "route", "get", _ROUTE_PROBE_ADDR],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.SubprocessError, OSError):
+        proc = None
+
+    if proc is not None and proc.returncode == 0:
+        fields = proc.stdout.split()
+        if "dev" in fields:
+            device = fields[fields.index("dev") + 1]
+            if device.startswith(_TUNNEL_PREFIXES):
+                return device
+            # Route resolved to a non-tunnel device — the VPN is not carrying
+            # traffic, even if a stale tun* interface still exists.
+            return None
+
+    # `ip` unavailable: fall back to presence of a tunnel interface.
+    tunnels = sorted(_tunnel_interfaces())
+    return tunnels[0] if tunnels else None
 
 
 def vpn_status(provider: str = "pia") -> VpnStatus:
