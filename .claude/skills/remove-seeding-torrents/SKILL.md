@@ -18,6 +18,10 @@ cd /home/agb86/workspace/repos/torrent-agent && .venv/bin/python scripts/remove_
 
 ## Step 2 — Interpret the output
 
+If any torrents were removed, the first output line is an internal logging
+artifact path (an absolute path ending `.json`, written for ai-data-store) —
+skip it and relay only the lines that follow.
+
 | Output | What to tell the user |
 |--------|----------------------|
 | `Removed N seeding torrent(s):` followed by names | Confirm how many were removed and list them. |

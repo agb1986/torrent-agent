@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Allow running as a script from any directory.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPO_ROOT))
 
 from torrent_agent.config import load_config
 from torrent_agent.deluge import DelugeError, _read_localclient_auth
@@ -72,6 +76,22 @@ def main() -> None:
         client.disconnect()
     except Exception:
         pass
+
+    if removed:
+        tmp_dir = _REPO_ROOT / "tmp"
+        tmp_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        artifact_path = tmp_dir / f"removed_seeding_{timestamp}.json"
+        with open(artifact_path, "w") as f:
+            json.dump(
+                {
+                    "removed": removed,
+                    "failed": [{"name": name, "error": err} for name, err in failed],
+                },
+                f,
+                indent=2,
+            )
+        print(os.path.abspath(artifact_path))
 
     print(f"Removed {len(removed)} seeding torrent(s):")
     for name in removed:

@@ -95,6 +95,8 @@ class TorrentAgent:
         self.client = anthropic.Anthropic()
         self.model = config.get("anthropic", {}).get("model", "claude-opus-4-8")
         self._results: dict[str, search.TorrentResult] = {}
+        self._result_meta: dict[str, dict] = {}
+        self.added: list[dict] = []
 
     # --- tool implementations ------------------------------------------- #
     def _tool_search(self, query: str, media_type: str) -> str:
@@ -105,6 +107,7 @@ class TorrentAgent:
 
         scored = ranking.rank(raw, self.config.get("preferences", {}), media_type)
         self._results.clear()
+        self._result_meta.clear()
         out = []
         for i, s in enumerate(scored[:_TOP_N]):
             rid = f"r{i + 1}"
@@ -114,20 +117,20 @@ class TorrentAgent:
                 if s.result.size_bytes
                 else None
             )
-            out.append(
-                {
-                    "result_id": rid,
-                    "title": s.result.title,
-                    "resolution": s.resolution,
-                    "codec": s.codec,
-                    "season": s.season,
-                    "episode": s.episode,
-                    "seeders": s.result.seeders,
-                    "size_gb": size_gb,
-                    "age_days": round(s.age_days, 1) if s.age_days is not None else None,
-                    "source": s.result.source,
-                }
-            )
+            meta = {
+                "result_id": rid,
+                "title": s.result.title,
+                "resolution": s.resolution,
+                "codec": s.codec,
+                "season": s.season,
+                "episode": s.episode,
+                "seeders": s.result.seeders,
+                "size_gb": size_gb,
+                "age_days": round(s.age_days, 1) if s.age_days is not None else None,
+                "source": s.result.source,
+            }
+            self._result_meta[rid] = meta
+            out.append(meta)
         if not out:
             return json.dumps({"results": [], "note": "No matching torrents found."})
         return json.dumps({"results": out})
@@ -159,6 +162,20 @@ class TorrentAgent:
             tid = deluge.add_torrent(result.link, self.config)
         except deluge.DelugeError as exc:
             return json.dumps({"added": False, "error": str(exc)})
+        meta = self._result_meta.get(result_id, {})
+        self.added.append(
+            {
+                "title": result.title,
+                "torrent_id": tid,
+                "resolution": meta.get("resolution"),
+                "codec": meta.get("codec"),
+                "season": meta.get("season"),
+                "episode": meta.get("episode"),
+                "seeders": result.seeders,
+                "size_gb": meta.get("size_gb"),
+                "source": result.source,
+            }
+        )
         return json.dumps(
             {"added": True, "torrent_id": tid, "title": result.title}
         )

@@ -3,10 +3,28 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import re
 import sys
+from datetime import datetime, timezone
 
 from .agent import build_agent
 from .config import load_config
+
+
+def _slugify(text: str, max_len: int = 40) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug[:max_len].strip("-") or "request"
+
+
+def _write_added_artifact(request: str, added: list[dict]) -> str:
+    os.makedirs("tmp", exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = os.path.join("tmp", f"added_{_slugify(request)}_{timestamp}.json")
+    with open(path, "w") as f:
+        json.dump({"request": request, "added": added}, f, indent=2)
+    return os.path.abspath(path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         result = agent.run(request)
     except KeyboardInterrupt:
         return 130
+    if agent.added:
+        print(_write_added_artifact(request, agent.added))
     print(result)
     return 0
 
