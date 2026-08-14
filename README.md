@@ -122,4 +122,4 @@ no API key, falling back to Wikidata, but will use TMDB directly if
 | `scripts/bind_vpn.py` | pin Deluge's sockets to the VPN tunnel (kill switch) |
 | `scripts/transfer.py` | rsync to server + Jellyfin scan |
 | `scripts/tmdb_id.py` | resolve a title → TMDB id for Jellyfin-readable names |
-| `scripts/remove_seeding.py` | drop Seeding torrents (keeps data) |
+| `scripts/remove_seeding.py` | drop Seeding torrents, or specific ones with `--id` (keeps data) |

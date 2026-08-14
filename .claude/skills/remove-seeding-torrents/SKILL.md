@@ -32,5 +32,9 @@ skip it and relay only the lines that follow.
 ## Notes
 
 - Data is **never** deleted — `remove_data=False` is hardcoded in the script.
+- The script also takes `--id <torrent_id>` (repeatable) to remove named
+  torrents regardless of state, and `--dry-run` to preview. This skill is the
+  sweep-everything case and needs neither; `fetch-to-jellyfin` uses `--id` so
+  it only cleans up the torrent it added.
 - No VPN check needed; this is a local Deluge operation only.
 - Always use `.venv/bin/python`, not the system Python.
