@@ -48,7 +48,7 @@ def _fmt_eta(seconds: int) -> str:
 
 
 def main() -> None:
-    config = load_config(_REPO_ROOT / "config.toml")
+    config = load_config()
 
     with deluge.connect(config) as client:
         try:

@@ -65,12 +65,13 @@ def deluge_binding(config: dict[str, Any]) -> dict[str, str] | None:
     return out
 
 
-def _read_localclient_auth() -> tuple[str, str] | None:
-    """Parse ~/.config/deluge/auth for the localclient credentials.
+def default_auth_path() -> Path:
+    """Where the native, run-as-you deluged keeps its credentials."""
+    return Path.home() / ".config" / "deluge" / "auth"
 
-    Lines look like: ``username:password:level``.
-    """
-    auth_path = Path.home() / ".config" / "deluge" / "auth"
+
+def _read_auth_file(auth_path: Path) -> tuple[str, str] | None:
+    """Parse a Deluge auth file. Lines look like ``username:password:level``."""
     try:
         lines = auth_path.read_text().splitlines()
     except OSError:
@@ -83,16 +84,41 @@ def _read_localclient_auth() -> tuple[str, str] | None:
 
 
 def _resolve_credentials(cfg: dict[str, Any]) -> tuple[str, str]:
+    """Credentials for the configured daemon.
+
+    Order: explicit config, then an explicitly configured auth_file, then the
+    native daemon's ~/.config/deluge/auth.
+
+    The last step is a convenience for the run-as-you daemon and a trap for
+    anything else: a containerised Deluge has its OWN auth file, and silently
+    using the host's produces a bare "Bad login" that gives no hint the wrong
+    file was read. So set [deluge] auth_file (or username/password) whenever
+    the daemon is not the native one.
+    """
     username = cfg.get("username") or ""
     password = cfg.get("password") or ""
     if username and password:
         return username, password
-    auth = _read_localclient_auth()
+
+    configured = cfg.get("auth_file") or ""
+    if configured:
+        path = Path(configured).expanduser()
+        auth = _read_auth_file(path)
+        if auth:
+            return auth
+        raise DelugeError(
+            f"[deluge] auth_file is set to {path} but no credentials could be "
+            f"read from it."
+        )
+
+    path = default_auth_path()
+    auth = _read_auth_file(path)
     if auth:
         return auth
     raise DelugeError(
-        "No Deluge credentials: set username/password in config.toml or ensure "
-        "~/.config/deluge/auth exists (created when deluged first runs)."
+        f"No Deluge credentials: set username/password or auth_file under "
+        f"[deluge] in your config, or ensure {path} exists (created when the "
+        f"native deluged first runs)."
     )
 
 

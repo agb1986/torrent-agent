@@ -1,17 +1,28 @@
 """VPN state detection.
 
-Primary check is PIA's `piactl get connectionstate`. If piactl is missing or
-unresponsive we fall back to looking for a VPN tunnel interface (tun*/wg*/pia*).
-The check runs wherever this agent runs, which must be the same machine Deluge
-binds to for it to be meaningful.
+Two providers:
+
+- ``pia`` — `piactl get connectionstate` on this machine, falling back to
+  looking for a tunnel interface (tun*/wg*/pia*). Meaningful only when the
+  agent runs on the same box Deluge binds to.
+- ``gluetun`` — HTTP to the VPN container's control server. The tunnel lives
+  inside a network namespace, so there is nothing on the host to inspect and
+  piactl does not exist there.
+
+Both fail closed: anything unknown reports inactive, because the caller uses
+this to decide whether adding a torrent is safe.
 """
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 _PIACTL_CANDIDATES = ("piactl", "/opt/piavpn/bin/piactl")
 _TUNNEL_PREFIXES = ("tun", "wg", "pia")
@@ -98,12 +109,72 @@ def tunnel_device() -> str | None:
     return tunnels[0] if tunnels else None
 
 
-def vpn_status(provider: str = "pia") -> VpnStatus:
-    """Return the current VPN status.
+def binding_is_structural(provider: str) -> bool:
+    """True when containment comes from the runtime, not from Deluge's config.
 
-    ``provider`` is accepted for forward compatibility; only "pia" has a
-    dedicated path today. The interface fallback is provider-agnostic.
+    Under gluetun, Deluge shares the tunnel container's network namespace and
+    has no other route out, so there is no `listen_interface` to check and
+    nothing for scripts/bind_vpn.py to fix. Under PIA-on-the-host the binding
+    is a real, separately-verifiable setting.
     """
+    return provider == "gluetun"
+
+
+def _gluetun_get(base_url: str, path: str, api_key: str) -> Any | None:
+    """GET a control-server route, returning parsed JSON or None on any failure."""
+    req = urllib.request.Request(base_url.rstrip("/") + path)
+    if api_key:
+        req.add_header("X-API-Key", api_key)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status != 200:
+                return None
+            return json.loads(resp.read().decode())
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        # Includes 401 from a missing/wrong key, which must NOT read as "up".
+        return None
+
+
+def _gluetun_status(config: dict[str, Any]) -> VpnStatus:
+    base = str(config.get("control_url") or "http://127.0.0.1:8000")
+    api_key = str(config.get("api_key") or "")
+
+    status = _gluetun_get(base, "/v1/vpn/status", api_key)
+    if status is None:
+        return VpnStatus(
+            active=False,
+            ip=None,
+            detail=(
+                f"gluetun control server at {base} did not answer "
+                f"/v1/vpn/status (down, unreachable, or api_key rejected)"
+            ),
+        )
+
+    state = status.get("status") if isinstance(status, dict) else None
+    if state != "running":
+        return VpnStatus(
+            active=False, ip=None, detail=f"gluetun vpn status={state!r}"
+        )
+
+    # Running: the exit IP is proof of which network we are on, and is the
+    # gluetun equivalent of piactl's vpnip.
+    ip = None
+    pub = _gluetun_get(base, "/v1/publicip/ip", api_key)
+    if isinstance(pub, dict):
+        ip = pub.get("public_ip") or None
+    return VpnStatus(active=True, ip=ip, detail="gluetun vpn status=running")
+
+
+def vpn_status(
+    provider: str = "pia", config: dict[str, Any] | None = None
+) -> VpnStatus:
+    """Return the current VPN status for ``provider``.
+
+    ``config`` is the ``[vpn]`` block; only the gluetun path needs it.
+    """
+    if provider == "gluetun":
+        return _gluetun_status(config or {})
+
     exe = _piactl_path()
     if provider == "pia" and exe:
         state = _piactl_get(exe, "connectionstate")

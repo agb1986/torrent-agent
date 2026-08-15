@@ -24,10 +24,22 @@ port = 58846
 # Leave username/password empty to auto-read ~/.config/deluge/auth (localclient).
 username = ""
 password = ""
+# Only for a Deluge that is NOT the native run-as-you daemon — a container has
+# its own auth file, and the fallback above would read the host's instead. The
+# only symptom of getting this wrong is an unexplained "Bad login".
+auth_file = ""
 
 [vpn]
-# Only "pia" is implemented (uses piactl).
+# "pia"     -> piactl on this machine (the laptop).
+# "gluetun" -> the VPN container's control server (the server, and the
+#              containerised rehearsal stack). Required there because the
+#              tunnel lives in a network namespace, not on the host.
 provider = "pia"
+# gluetun only. The api_key must match a role in gluetun's
+# /gluetun/auth/config.toml — see deploy/casaos/init-gluetun-auth.sh.
+# Prefer the GLUETUN_API_KEY env var over storing it here.
+control_url = "http://127.0.0.1:8000"
+api_key = ""
 
 [preferences]
 # Most-preferred resolution first.
