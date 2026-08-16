@@ -370,7 +370,10 @@ def test_error_messages_do_not_leak_the_bot_token():
 
     from server.telegram import TelegramClient, TelegramError
 
-    token = "8274413521:AAErxenmZ5qJZTqP0d7xoXPnWsWaD7nAOWE"
+    # Shaped like a real token, deliberately not one. Never paste a live
+    # credential into a fixture — even a test that exists to prove we do not
+    # leak it will happily leak it via the repository.
+    token = "1234567890:FAKE-not-a-real-bot-token-for-tests-only"
 
     class _Boom:
         def post(self, url, **kw):
