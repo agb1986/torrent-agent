@@ -6,6 +6,8 @@ Server, destinations, and Jellyfin settings come from config.toml ([server] and
 var (or [jellyfin].api_key).
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os

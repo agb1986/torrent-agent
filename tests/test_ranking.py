@@ -1,5 +1,9 @@
 """Ranking: codec canonicalization, hard filters, and score ordering."""
 
+# Keeps `str | None` in the helper signatures below from being evaluated at
+# import time, so the suite runs on the server's Python 3.9 as well as 3.12.
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 
 from torrent_agent.ranking import rank
