@@ -16,7 +16,15 @@ def test_defaults_when_no_config_file(tmp_path, monkeypatch):
         monkeypatch.delenv(var, raising=False)
     config = load_config(tmp_path / "missing.toml")
     assert config["anthropic"]["model"] == DEFAULTS["anthropic"]["model"]
-    assert config["server"]["destinations"]["tv"] == "/mnt/data/tv"
+
+    # A fresh clone must not inherit anyone's infrastructure. No host, no
+    # destinations, no media server — so transfer.py treats the machine it is
+    # on as the destination and skips the library scan, rather than trying to
+    # ssh somewhere that does not exist.
+    assert config["server"]["host"] == ""
+    assert config["server"]["destinations"] == {}
+    assert config["jellyfin"]["url"] == ""
+    assert config["jellyfin"]["path_map"] == {}
 
 
 def test_env_overrides_win(tmp_path, monkeypatch):

@@ -31,11 +31,11 @@ auth_file = ""
 
 # Container path -> host path, for a Deluge running in a container. It reports
 # save_path from inside its own namespace (/downloads), which does not exist on
-# the host, where the same files are at /mnt/data/downloads. Only the automated
+# the host, where the same files are somewhere else entirely. Only the automated
 # pipeline needs this; a native deluged already reports host paths and can leave
 # it empty.
 [deluge.path_map]
-# "/downloads" = "/mnt/data/downloads"
+# "/downloads" = "/srv/media/downloads"
 
 [vpn]
 # "pia"     -> the tunnel on this machine (the laptop). piactl when PIA is
@@ -62,23 +62,28 @@ max_episode_size_gb = 20
 min_seeders = 1
 
 [server]
-# The media server scripts/transfer.py pushes to over rsync/SSH.
-user = "casaos"
-host = "casaos.local"
-ssh_key = "~/.ssh/id_rsa_ha"
+# Where tidied media ends up.
+#
+# Leave `host` EMPTY when the library is on this machine, or when there is no
+# separate server: transfer.py then moves files into the destinations below
+# instead of rsyncing over SSH, which is a rename rather than a copy when both
+# are on one filesystem. Set it only for a genuinely remote box.
+user = ""
+host = ""            # e.g. "media.local" — empty means this machine
+ssh_key = ""         # e.g. "~/.ssh/id_rsa" — only needed for a remote host
 
 [server.destinations]
-# transfer.py grows one --flag per entry here.
-film = "/mnt/data/film"
-tv = "/mnt/data/tv"
-book = "/media/local/books"
-manga = "/media/local/manga"
+# transfer.py grows one --flag per entry here, so these names become the CLI
+# flags (--film, --tv, ...). Point them wherever your library lives.
+# film = "/srv/media/film"
+# tv = "/srv/media/tv"
 
 [jellyfin]
 # Jellyfin on the media server; transfer.py asks it to scan after a transfer.
 # API key: Jellyfin Dashboard -> API Keys. Prefer the JELLYFIN_API_KEY env var
 # over storing it here.
-url = "http://casaos.local:8096"
+# Empty means no media server: the scan is skipped rather than failing.
+url = ""             # e.g. "http://media.local:8096"
 api_key = ""
 
 [tmdb]
@@ -89,7 +94,9 @@ api_key = ""
 api_key = ""
 
 [jellyfin.path_map]
-# Server path -> path inside the Jellyfin container (its bind mounts).
-# Paths with no mapping (books, manga) skip the scan.
-"/mnt/data/tv" = "/media/tv"
-"/mnt/data/film" = "/media/movies"
+# Server path -> path inside the Jellyfin container (its bind mounts). These
+# are per-install, so there is no default. Jellyfin mounts each library
+# separately, so this is a per-library map, not one shared prefix. Paths with
+# no mapping skip the scan.
+# "/srv/media/tv" = "/media/tv"
+# "/srv/media/film" = "/media/movies"

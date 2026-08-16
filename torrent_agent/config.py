@@ -46,28 +46,29 @@ DEFAULTS: dict[str, Any] = {
         "max_episode_size_gb": 20,
         "min_seeders": 1,
     },
-    # The CASAOS media server that scripts/transfer.py pushes to.
+    # Where tidied media ends up. Empty host means "this machine": transfer.py
+    # then moves files into destinations locally instead of rsyncing over SSH,
+    # which is also the right behaviour when there is no separate server at
+    # all. Fill these in via config.toml — shipping one person's hostname and
+    # ssh key as defaults just sends a stranger's first transfer somewhere
+    # that does not exist.
     "server": {
-        "user": "casaos",
-        "host": "casaos.local",
-        "ssh_key": "~/.ssh/id_rsa_ha",
-        "destinations": {
-            "film": "/mnt/data/film",
-            "tv": "/mnt/data/tv",
-            "book": "/media/local/books",
-            "manga": "/media/local/manga",
-        },
+        "user": "",
+        "host": "",
+        "ssh_key": "",
+        "destinations": {},
     },
     # Jellyfin (on the same server) is told to scan after each transfer.
     # path_map translates server paths into the paths the Jellyfin container
     # sees (its bind mounts). Paths with no mapping (books, manga) are skipped.
+    # Told to scan after each delivery. Empty url means "no media server":
+    # the scan is skipped rather than failing. path_map translates server
+    # paths into the paths the media server's container sees — mappings are
+    # per-install, so there is no sensible default.
     "jellyfin": {
-        "url": "http://casaos.local:8096",
+        "url": "",
         "api_key": "",
-        "path_map": {
-            "/mnt/data/tv": "/media/tv",
-            "/mnt/data/film": "/media/movies",
-        },
+        "path_map": {},
     },
     # scripts/tmdb_id.py tags tidied media with its TMDB id. The key is
     # optional — without one it resolves ids through Wikidata instead.
