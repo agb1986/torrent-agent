@@ -2,3 +2,6 @@ anthropic>=0.69
 deluge-client>=1.10
 guessit>=3.8
 requests>=2.31
+
+# tomllib is stdlib only from 3.11; the CasaOS server runs Debian 3.9.
+tomli>=2.0; python_version < "3.11"

@@ -3,8 +3,16 @@
 from __future__ import annotations
 
 import os
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover - depends on interpreter
+    # The CasaOS server runs Debian's 3.9, where tomllib is not yet stdlib.
+    # tomli is the same library, and is what tomllib was adopted from, so the
+    # call sites need no branching beyond this import.
+    import tomli as tomllib
+
 from typing import Any
 
 DEFAULTS: dict[str, Any] = {
