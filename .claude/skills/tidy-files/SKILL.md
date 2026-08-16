@@ -5,6 +5,14 @@ description: Tidy TV and film media files - repackage TV directories or single e
 
 # Tidy Files
 
+> **Placeholders below** — `$SERVER` is `user@host`, `$TV_DIR` / `$FILM_DIR`
+> are the entries under `[server.destinations]`, and `$JELLYFIN_URL` is
+> `[jellyfin] url`, all from the active `config.toml`. They are not
+> environment variables; read the values out of the config before running
+> anything. An empty `[server] host` means the library is on this machine, so
+> there is nothing to ssh to — use local paths directly.
+
+
 Repackage messy media files into a clean, consistently named structure.
 
 TV target format — a directory tree:
@@ -28,7 +36,7 @@ search "One Piece" and the top hit is the 2023 live action, not the 1999 anime.
 Season directories and episode files carry no tag — Jellyfin only needs the id
 at the series/film level.
 
-Tidying only. To send the result to the CASAOS server afterwards, use the
+Tidying only. To deliver the result afterwards, use the
 **transfer-files** skill.
 
 ## Step 1 — Identify the input
@@ -36,7 +44,7 @@ Tidying only. To send the result to the CASAOS server afterwards, use the
 Deluge's download directory differs per machine, so ask Deluge rather than
 assuming. `scripts/status.py` lists the session, and the path is in the
 `[deluge]` block of the active config — on the CasaOS server it is
-`/mnt/data/downloads`. Where Deluge runs in a container it reports its *own*
+`$DOWNLOADS_DIR`. Where Deluge runs in a container it reports its *own*
 view (`/downloads`); `[deluge.path_map]` translates that to the host path.
 
 Resolve what the user gave you against that directory:
@@ -47,7 +55,7 @@ Resolve what the user gave you against that directory:
   directories carry a lot of junk around the title:
 
   ```bash
-  find /mnt/data/downloads -maxdepth 2 -iname "*succession*"
+  find $DOWNLOADS_DIR -maxdepth 2 -iname "*succession*"
   ```
 
   Put a `*` between words rather than a space — releases are as often
@@ -190,7 +198,7 @@ you expect, ask the user for the year rather than guessing.
   `Film Name (Year) [tmdbid-N].ext` alongside the source directory, leaving the
   junk behind. Keep subtitles on a matching basename
   (`Film Name (Year) [tmdbid-N].en.srt`).
-- Films are flat files, not directories — this matches `/mnt/data/film` on the
+- Films are flat files, not directories — this matches `$FILM_DIR` on the
   server.
 
 ## Step 3C — Look up the TMDB id
@@ -355,7 +363,7 @@ never delete the tidied output.
 ## Step 6 — Offer the transfer
 
 Report what was tidied and where it now lives, then offer to push it to the
-CASAOS server via the **transfer-files** skill. If the user declines, stop here.
+media server via the **transfer-files** skill. If the user declines, stop here.
 
 ### If the show is already on the server untagged
 
@@ -364,7 +372,7 @@ next to it gives Jellyfin **two** entries for the one show, with the episodes
 split between them. Check before transferring:
 
 ```bash
-ssh casaos@casaos.local 'ls /mnt/data/tv | grep -i "show name"'
+ssh $SERVER 'ls $TV_DIR | grep -i "show name"'
 ```
 
 If an untagged directory is there, the fix is to rename the **remote** one to
@@ -372,5 +380,5 @@ the tagged name so the new episodes land inside it. That is a change to the
 user's library, so ask first, then:
 
 ```bash
-ssh casaos@casaos.local 'mv "/mnt/data/tv/Show Name" "/mnt/data/tv/Show Name (1999) [tmdbid-37854]"'
+ssh $SERVER 'mv "$TV_DIR/Show Name" "$TV_DIR/Show Name (1999) [tmdbid-37854]"'
 ```

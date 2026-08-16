@@ -13,7 +13,7 @@ Downloaded data is kept on disk — only the torrent entry is removed.
 Always run from the project root so `config.toml` is found automatically:
 
 ```bash
-cd /home/agb86/workspace/repos/torrent-agent && .venv/bin/python scripts/remove_seeding.py
+cd <project root> && .venv/bin/python scripts/remove_seeding.py
 ```
 
 ## Step 2 — Interpret the output

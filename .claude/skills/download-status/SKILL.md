@@ -13,7 +13,7 @@ rate, ETA, and size.
 Always run from the project root:
 
 ```bash
-cd /home/agb86/workspace/repos/torrent-agent && .venv/bin/python scripts/status.py
+cd <project root> && .venv/bin/python scripts/status.py
 ```
 
 ## Step 2 — Interpret the output
