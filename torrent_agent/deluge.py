@@ -181,6 +181,10 @@ TORRENT_FIELDS = [
     "total_wanted",
     "num_seeds",
     "total_peers",
+    # Deluge's own notion of done, rather than progress >= 100.0. A float
+    # comparison would also fire for a torrent that was already complete when
+    # it was added, and for one still checking its existing data.
+    "is_finished",
 ]
 
 # Active work first, so the interesting rows lead in any view.
@@ -224,11 +228,13 @@ def list_torrents(config: dict[str, Any]) -> list[dict[str, Any]]:
             raise DelugeError(f"Failed to list torrents: {exc}") from exc
 
     rows = []
-    for info in (torrents or {}).values():
+    for tid, info in (torrents or {}).items():
         info = {_decode(k): v for k, v in info.items()}
         rows.append(
             {
+                "id": _decode(tid),
                 "name": _decode(info.get("name", "<unknown>")),
+                "finished": bool(info.get("is_finished", False)),
                 "state": _decode(info.get("state", "?")),
                 "progress": float(info.get("progress", 0.0)),
                 "eta": int(info.get("eta", 0)),

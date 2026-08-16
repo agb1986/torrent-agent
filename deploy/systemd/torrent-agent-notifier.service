@@ -1,0 +1,24 @@
+[Unit]
+Description=Tell Telegram when a Deluge download finishes
+Documentation=https://github.com/agb1986/torrent-agent
+After=network-online.target docker.service
+Wants=network-online.target
+# A missing token makes it exit 1 every time; stop rather than loop forever.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/workspace/repos/torrent-agent
+# Shares the bot's file: same token, same allowlist — whoever may drive the
+# bot is who gets told. TORRENT_AGENT_CONFIG in there picks the stack.
+EnvironmentFile=%h/workspace/repos/torrent-agent/.env.bot
+ExecStart=%h/workspace/repos/torrent-agent/.venv/bin/python -u -m server.notifier
+# always, like pfsync: it should outlive Deluge restarts and container
+# bounces, and it has no misconfiguration it exits on beyond a missing token
+# (which StartLimitBurst below will stop looping on).
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
