@@ -9,11 +9,11 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-WorkingDirectory=%h/workspace/repos/torrent-agent
+WorkingDirectory=__REPO__
 # Shares the bot's file: same token, same allowlist — whoever may drive the
 # bot is who gets told. TORRENT_AGENT_CONFIG in there picks the stack.
-EnvironmentFile=%h/workspace/repos/torrent-agent/.env.bot
-ExecStart=%h/workspace/repos/torrent-agent/.venv/bin/python -u -m server.notifier
+EnvironmentFile=__REPO__/.env.bot
+ExecStart=__REPO__/.venv/bin/python -u -m server.notifier
 # always, like pfsync: it should outlive Deluge restarts and container
 # bounces, and it has no misconfiguration it exits on beyond a missing token
 # (which StartLimitBurst below will stop looping on).

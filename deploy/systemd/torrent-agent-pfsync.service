@@ -6,11 +6,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/workspace/repos/torrent-agent
+WorkingDirectory=__REPO__
 # The containerised stack — the only one with a control server to ask.
 Environment=TORRENT_AGENT_CONFIG=config.rehearsal.toml
-ExecStart=%h/workspace/repos/torrent-agent/.venv/bin/python -u \
-    %h/workspace/repos/torrent-agent/scripts/sync_pf_port.py --watch
+ExecStart=__REPO__/.venv/bin/python -u \
+    __REPO__/scripts/sync_pf_port.py --watch
 # always, unlike the bot: this one is expected to outlive gluetun restarts and
 # transient control-server outages, and it has no misconfiguration it can exit
 # on. The internal loop already tolerates failures; this covers a hard crash.
