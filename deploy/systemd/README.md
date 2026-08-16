@@ -6,6 +6,7 @@ Two long-running pieces that previously had nothing keeping them alive:
 |---|---|---|
 | `torrent-agent-bot.service` | The Telegram control bot (`python -m server.bot`) | A dead bot is invisible — messages simply go unanswered |
 | `torrent-agent-pfsync.service` | `scripts/sync_pf_port.py --watch` | Proton's NAT-PMP lease rotates; when it moves and nothing re-syncs, Deluge silently drops to **zero inbound peers** with nothing in any log |
+| `torrent-agent-sub.service` | Fetches new episodes of followed series (`/sub`) | Nothing else watches a running show; without it, following a series means remembering to ask each week |
 | `torrent-agent-notifier.service` | Watches Deluge, messages Telegram on completion | Nothing else polls: the `fetch-to-jellyfin` skill only watches while a session drives it, and Deluge's Execute plugin is disabled. Downloads finished and sat in `complete/` with nobody told |
 
 **User** units, not system ones, so no root is needed and they run as the
@@ -16,7 +17,8 @@ account that owns `~/.config/deluge` and the virtualenv.
 ```bash
 cp deploy/systemd/*.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now torrent-agent-bot torrent-agent-pfsync torrent-agent-notifier
+systemctl --user enable --now torrent-agent-bot torrent-agent-pfsync \
+  torrent-agent-notifier torrent-agent-sub
 ```
 
 All three use `%h/workspace/repos/torrent-agent` — edit `WorkingDirectory` and

@@ -1,0 +1,24 @@
+[Unit]
+Description=Fetch new episodes of followed series as they air
+Documentation=https://github.com/agb1986/torrent-agent
+After=network-online.target docker.service
+Wants=network-online.target
+# A missing token makes it exit 1 every time; stop rather than loop forever.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/workspace/torrent-agent
+# Shares the bot's file: same token, same allowlist, same daily budget. One
+# ceiling on spend rather than two that can each be under their own limit.
+EnvironmentFile=%h/workspace/torrent-agent/.env.bot
+ExecStart=%h/workspace/torrent-agent/.venv/bin/python -u -m server.sub
+# always, like the notifier: it should outlive TVmaze outages and Deluge
+# restarts. A failed tick is logged and the next one reconciles anyway, since
+# it asks what is missing rather than what is due.
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target

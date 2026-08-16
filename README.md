@@ -121,6 +121,23 @@ python -m server.chat_id                             # find your chat id
 python -m server.bot
 ```
 
+Following a running series:
+
+```
+/sub https://www.imdb.com/title/tt10986410/   follow (IMDb links only)
+/sub list                                     progress and next air date
+/sub stop tt10986410                          stop following
+```
+
+`server/sub.py` reconciles rather than schedules: on each tick it asks which
+episodes of a followed show have aired and are not here yet, so a missed tick
+costs a delay rather than a season. It catches up on episodes that aired
+before you subscribed, paces itself so a backlog does not exhaust the daily
+budget at once, retries every 12h when no release exists yet, matches the
+first episode's resolution and release group, and unsubscribes when the season
+ends. IMDb links only — an ambiguous subscription would fetch the wrong
+programme for weeks.
+
 Guard rails, because it holds an API key unattended: an allowlist checked
 before anything is parsed, a per-day request cap that survives restarts and
 counts attempts rather than successes, and a JSONL audit log.
@@ -192,6 +209,7 @@ no API key, falling back to Wikidata, but will use TMDB directly if
 | `tidy.py`    | plan a rename, and refuse when anything is unclear |
 | `cli.py`     | entrypoint |
 | `server/bot.py` | Telegram bot: `/get`, `/status`, `/cancel` |
+| `server/sub.py` | follow a running series; fetch episodes as they air |
 | `server/notifier.py` | watch for finished downloads; announce or deliver |
 | `server/pipeline.py` | finished → out of Deluge → tidy → deliver → Jellyfin |
 | `server/runner.py` | invoke the agent, plus the daily spend cap |
