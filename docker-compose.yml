@@ -8,6 +8,13 @@
 #   docker rm -f prowlarr flaresolverr   # remove any standalone containers first
 #   docker compose up -d
 #
+# On the CasaOS server, where the config lives elsewhere:
+#   PROWLARR_CONFIG=/home/casaos/.config/prowlarr docker compose up -d
+#
+# Deliberately NOT on the VPN: indexer access and CloudFlare solving get
+# strange through the tunnel, which is why these are not in
+# deploy/casaos/docker-compose.yml alongside gluetun and Deluge.
+#
 # (prefix with sudo if your user isn't in the docker group)
 
 name: torrent-agent
@@ -22,10 +29,12 @@ services:
       - PGID=1000
       - TZ=Etc/UTC          # set to your zone, e.g. Europe/Dublin
     volumes:
-      # Absolute path on purpose: running `docker compose` under sudo makes
-      # ${HOME} expand to /root, which silently mounts an empty config and
-      # regenerates the API key. Pin it to your real config dir.
-      - /home/agb86/.config/prowlarr:/config
+      # An explicit absolute path, never ${HOME}: running `docker compose`
+      # under sudo expands ${HOME} to /root, which silently mounts an empty
+      # config and regenerates the API key. PROWLARR_CONFIG overrides it for
+      # other machines — the server runs
+      #   PROWLARR_CONFIG=/home/casaos/.config/prowlarr docker compose up -d
+      - ${PROWLARR_CONFIG:-/home/agb86/.config/prowlarr}:/config
     ports:
       - "9696:9696"
     networks:
