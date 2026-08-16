@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Transfer media to the CASAOS server via rsync, then trigger a Jellyfin scan.
+"""Deliver media to the media server, then trigger a Jellyfin scan.
+
+Two modes, chosen automatically:
+
+- **Local move** when the configured server is this machine. Since the stack
+  moved onto CasaOS, downloads land on the same box as /mnt/data/tv, and both
+  live on one filesystem — so delivery is a rename, not a 16 GB copy over SSH
+  to ourselves. Set `[server] local` to override the detection.
+- **rsync over SSH** otherwise, which is still how a laptop delivers.
 
 Server, destinations, and Jellyfin settings come from config.toml ([server] and
 [jellyfin] sections); the Jellyfin API key comes from the JELLYFIN_API_KEY env
@@ -11,6 +19,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
+import socket
 import subprocess
 import sys
 import urllib.error
@@ -32,6 +42,82 @@ DESTINATIONS = SERVER["destinations"]
 
 def build_remote(path: str) -> str:
     return f"{SERVER['user']}@{SERVER['host']}:{path}"
+
+
+def _local_addresses() -> set[str]:
+    addrs = {"127.0.0.1", "::1"}
+    for name in {socket.gethostname(), socket.getfqdn()}:
+        try:
+            addrs.update(info[4][0] for info in socket.getaddrinfo(name, None))
+        except OSError:
+            pass
+    return addrs
+
+
+def server_is_local(server: dict | None = None) -> bool:
+    """True when the media server is this machine.
+
+    Since the stack moved to CasaOS, downloads land on the same box as
+    /mnt/data/tv, and rsyncing over SSH to ourselves would copy 16 GB to
+    reach a directory two levels away. Set `[server] local` to force the
+    answer; otherwise it is inferred from the configured host.
+    """
+    server = SERVER if server is None else server
+    explicit = server.get("local")
+    if explicit is not None:
+        return bool(explicit)
+
+    host = str(server.get("host") or "").strip().lower()
+    if not host or host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    if host.split(".")[0] == socket.gethostname().split(".")[0].lower():
+        return True
+    try:
+        resolved = {info[4][0] for info in socket.getaddrinfo(host, None)}
+    except OSError:
+        # Unresolvable means we certainly cannot claim it is us.
+        return False
+    return bool(resolved & _local_addresses())
+
+
+def _merge_move(source: str, target: str) -> None:
+    """Move `source` into `target`, merging instead of nesting.
+
+    shutil.move onto an existing directory puts the source *inside* it —
+    `Show/Show/Season 01` — which is not what rsync does. Adding a second
+    season to a show already on the server is the ordinary case here, so the
+    merge is walked file by file.
+    """
+    for root, _dirs, files in os.walk(source):
+        rel = os.path.relpath(root, source)
+        dest_dir = target if rel == "." else os.path.join(target, rel)
+        os.makedirs(dest_dir, exist_ok=True)
+        for name in files:
+            shutil.move(os.path.join(root, name), os.path.join(dest_dir, name))
+    shutil.rmtree(source, ignore_errors=True)
+
+
+def transfer_local(source: str, dest: str) -> int:
+    """Move into place on this machine, rather than copying over the network.
+
+    A move, not a copy: on the server both paths are the same filesystem, so
+    this is a rename — instant, and it does not leave a second copy of a whole
+    season behind. That does mean the torrent must already be removed from
+    Deluge, exactly as the remote path required.
+    """
+    source = source.rstrip("/")
+    target = os.path.join(dest, os.path.basename(source))
+    print(f"\nMoving (same host): {source} -> {target}")
+    try:
+        os.makedirs(dest, exist_ok=True)
+        if os.path.isdir(source) and os.path.isdir(target):
+            _merge_move(source, target)
+        else:
+            shutil.move(source, target)
+    except OSError as exc:
+        print(f"[ERROR] {exc}")
+        return 1
+    return 0
 
 
 def transfer(source: str, remote_dest: str) -> int:
@@ -123,7 +209,7 @@ def scan_jellyfin(host_path: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Transfer files to the local server via rsync over SSH."
+        description="Transfer media to the server: a local move when it is this machine, otherwise rsync over SSH."
     )
     parser.add_argument(
         "source",
@@ -153,9 +239,15 @@ def main():
 
     exit_codes = []
     transferred = []
+    local = server_is_local()
+    print(f"Mode: {'local move' if local else 'rsync over SSH'} "
+          f"(server host: {SERVER['host'] or '(unset)'})")
+
     for flag in selected:
-        remote_dest = build_remote(DESTINATIONS[flag])
-        code = transfer(args.source, remote_dest)
+        if local:
+            code = transfer_local(args.source, DESTINATIONS[flag])
+        else:
+            code = transfer(args.source, build_remote(DESTINATIONS[flag]))
         exit_codes.append(code)
         if code != 0:
             print(f"[ERROR] Transfer to --{flag} failed (exit code {code})")
@@ -165,8 +257,8 @@ def main():
     # Scan once everything has landed, so Jellyfin sees the finished files.
     for dest in transferred:
         source = args.source.rstrip("/")
-        # rsync puts a directory inside the destination; scan just that
-        # subdirectory.  A file lands loose, so its directory is the target.
+        # Both modes put a directory inside the destination; scan just that
+        # subdirectory. A file lands loose, so its directory is the target.
         if os.path.isdir(source):
             scan_jellyfin(f"{dest}/{os.path.basename(source)}")
         else:
