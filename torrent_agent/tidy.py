@@ -120,16 +120,29 @@ def tvmaze_show(title: str) -> dict | None:
         return None
 
 
-def tvmaze_episodes(show_id: int) -> dict[tuple[int, int], str]:
+def tvmaze_episode_details(show_id: int) -> dict[tuple[int, int], dict]:
+    """Every episode keyed by (season, number), with name and air time.
+
+    The primitive: tidying only wants names, but subscriptions need to know
+    when something aired, and one fetch serves both.
+    """
     try:
         rows = _get_json(f"{_TVMAZE}/shows/{show_id}/episodes")
     except (urllib.error.URLError, OSError, ValueError):
         return {}
     return {
-        (int(e["season"]), int(e["number"])): e.get("name") or ""
+        (int(e["season"]), int(e["number"])): {
+            "name": e.get("name") or "",
+            "airstamp": e.get("airstamp"),
+        }
         for e in rows
         if e.get("season") is not None and e.get("number") is not None
     }
+
+
+def tvmaze_episodes(show_id: int) -> dict[tuple[int, int], str]:
+    """Episode names only — what the rename plan needs."""
+    return {k: v["name"] for k, v in tvmaze_episode_details(show_id).items()}
 
 
 def _resolve_tmdb(media_type: str, title: str, year: int | None, imdb: str | None):

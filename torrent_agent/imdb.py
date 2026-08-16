@@ -41,13 +41,24 @@ def _get_json(url: str):
         return json.loads(resp.read().decode())
 
 
-def _lookup_tv(imdb: str) -> dict | None:
-    """TVmaze indexes by IMDb id directly, so this is exact."""
+def show_by_imdb(imdb: str) -> dict | None:
+    """The raw TVmaze show for an IMDb id, or None.
+
+    Exposed because subscriptions need the TVmaze id to follow a series, not
+    just its name — and this lookup is exact, which is why /sub takes links
+    rather than titles.
+    """
     try:
         show = _get_json(f"{_TVMAZE}/lookup/shows?imdb={urllib.parse.quote(imdb)}")
     except (urllib.error.URLError, OSError, ValueError):
         return None
-    if not isinstance(show, dict) or not show.get("name"):
+    return show if isinstance(show, dict) and show.get("name") else None
+
+
+def _lookup_tv(imdb: str) -> dict | None:
+    """TVmaze indexes by IMDb id directly, so this is exact."""
+    show = show_by_imdb(imdb)
+    if not show:
         return None
     premiered = str(show.get("premiered") or "")
     return {

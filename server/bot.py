@@ -36,7 +36,10 @@ USAGE = (
     "  /get <title>  — find a torrent and add it to Deluge\n"
     "                (an IMDb link works too)\n"
     "  /status       — what the bot is doing right now\n"
-    "  /cancel       — stop the current run and clear the queue"
+    "  /cancel       — stop the current run and clear the queue\n"
+    "  /sub <imdb>   — follow a running series; new episodes fetch themselves\n"
+    "  /sub list     — what is being followed\n"
+    "  /sub stop <id>— stop following"
 )
 
 
@@ -175,6 +178,8 @@ class Bot:
             self.cmd_status(chat_id)
         elif command == "/cancel":
             self.cmd_cancel(chat_id, who)
+        elif command == "/sub":
+            self.cmd_sub(chat_id, who, argument)
         elif command in ("/start", "/help"):
             self.say(chat_id, USAGE)
         else:
@@ -206,6 +211,39 @@ class Bot:
             self.say(chat_id, f"Queued — {depth} ahead of it. Working through them.")
         else:
             self.say(chat_id, f"Looking for: {request}")
+
+    def cmd_sub(self, chat_id: int, who: str, argument: str) -> None:
+        """Manage subscriptions. Cheap enough to answer inline.
+
+        Subscribing costs two TVmaze calls and no model tokens, so unlike /get
+        this does not go through the worker queue.
+        """
+        from .sub import Store, format_list, subscribe, unsubscribe
+
+        store = Store(REPO_ROOT / "tmp" / "subscriptions.json")
+        arg = argument.strip()
+
+        if not arg:
+            self.say(chat_id, format_list(store))
+            return
+        if arg.lower() == "list":
+            self.say(chat_id, format_list(store))
+            return
+        if arg.lower().startswith("stop"):
+            target = arg[4:].strip()
+            if not target:
+                self.say(chat_id, "Which one? /sub stop tt10986410")
+                return
+            ok, msg = unsubscribe(target, store)
+            self.record("unsubscribed" if ok else "unsubscribe_failed",
+                        chat_id=chat_id, user=who, target=target)
+            self.say(chat_id, msg)
+            return
+
+        ok, msg = subscribe(arg, store)
+        self.record("subscribed" if ok else "subscribe_failed",
+                    chat_id=chat_id, user=who, request=arg)
+        self.say(chat_id, msg)
 
     def cmd_status(self, chat_id: int) -> None:
         lines = []
