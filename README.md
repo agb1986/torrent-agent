@@ -70,7 +70,7 @@ Two arrangements, set by `[vpn] provider`:
 - **`gluetun`** — Deluge runs inside the VPN container's network namespace and
   has no other route out, so containment is structural rather than a setting.
   Status comes from gluetun's control server. See
-  `deploy/casaos/docker-compose.yml`.
+  `deploy/server/docker-compose.yml`.
 
 Under `pia`, that check only gates the *moment of adding*. For protection
 against the VPN dropping mid-download, Deluge's peer sockets are bound to the
@@ -221,6 +221,7 @@ no API key, falling back to Wikidata, but will use TMDB directly if
 | `scripts/transfer.py` | deliver to the library (local move or rsync) + Jellyfin scan |
 | `scripts/tmdb_id.py` | resolve a title → TMDB id for Jellyfin-readable names |
 | `scripts/remove_seeding.py` | drop Seeding torrents, or specific ones with `--id` (keeps data) |
-| `deploy/casaos/` | gluetun + Deluge compose, with Deluge inside the tunnel |
+| `deploy/server/` | gluetun + Deluge compose, with Deluge inside the tunnel |
+| `deploy/server/.env.example` | where data lives, and which VPN — no secrets |
 | `deploy/systemd/` | user units for the bot, notifier and port sync |
 | `deploy/host/` | machine-level setup the stack needs but cannot apply itself |

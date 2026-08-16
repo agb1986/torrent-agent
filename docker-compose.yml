@@ -13,7 +13,7 @@
 #
 # Deliberately NOT on the VPN: indexer access and CloudFlare solving get
 # strange through the tunnel, which is why these are not in
-# deploy/casaos/docker-compose.yml alongside gluetun and Deluge.
+# deploy/server/docker-compose.yml alongside gluetun and Deluge.
 #
 # (prefix with sudo if your user isn't in the docker group)
 

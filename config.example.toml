@@ -46,7 +46,7 @@ auth_file = ""
 #              tunnel lives in a network namespace, not on the host.
 provider = "pia"
 # gluetun only. The api_key must match a role in gluetun's
-# /gluetun/auth/config.toml — see deploy/casaos/init-gluetun-auth.sh.
+# /gluetun/auth/config.toml — see deploy/server/init-gluetun-auth.sh.
 # Prefer the GLUETUN_API_KEY env var over storing it here.
 control_url = "http://127.0.0.1:8000"
 api_key = ""

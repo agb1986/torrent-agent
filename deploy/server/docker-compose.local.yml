@@ -1,0 +1,27 @@
+# Override for running this stack beside an existing Deluge on the same box —
+# a second, disposable copy for trying changes before they reach the real one.
+#
+#   docker compose -f deploy/server/docker-compose.yml \
+#                  -f deploy/server/docker-compose.local.yml up -d
+#
+# Ports only. Where data lives is APPDATA_ROOT and DOWNLOADS_DIR in
+# deploy/server/.env, so point those somewhere disposable rather than
+# overriding volumes here — that is how this file used to carry one person's
+# home directory.
+#
+# Ports are shifted because the defaults are already taken:
+#   8112 -> 8113   Deluge web UI
+#   58846 -> 58847 Deluge daemon RPC
+#
+# All bound to 127.0.0.1. Docker's default is 0.0.0.0, which would put the
+# Deluge web UI — carrying the linuxserver image's default password — in reach
+# of everything on the network, and the HTTP proxy would be an open relay
+# through your VPN. Nothing off-box needs any of them.
+
+services:
+  gluetun:
+    ports: !override
+      - "127.0.0.1:8113:8112"
+      - "127.0.0.1:58847:58846"
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8888:8888"
