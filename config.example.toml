@@ -30,7 +30,9 @@ password = ""
 auth_file = ""
 
 [vpn]
-# "pia"     -> piactl on this machine (the laptop).
+# "pia"     -> the tunnel on this machine (the laptop). piactl when PIA is
+#              installed and connected, otherwise a route check that covers
+#              ProtonVPN (proton0) and any other host tunnel.
 # "gluetun" -> the VPN container's control server (the server, and the
 #              containerised rehearsal stack). Required there because the
 #              tunnel lives in a network namespace, not on the host.

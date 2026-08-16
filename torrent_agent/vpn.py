@@ -2,9 +2,12 @@
 
 Two providers:
 
-- ``pia`` — `piactl get connectionstate` on this machine, falling back to
-  looking for a tunnel interface (tun*/wg*/pia*). Meaningful only when the
-  agent runs on the same box Deluge binds to.
+- ``pia`` — the host tunnel, whatever carries it. `piactl get connectionstate`
+  when PIA is installed, otherwise the route check below, which is
+  provider-agnostic: it covers ProtonVPN (proton0), WireGuard (wg*) and
+  anything else that owns the default route. The name is historical; it means
+  "the tunnel on this machine". Meaningful only when the agent runs on the same
+  box Deluge binds to.
 - ``gluetun`` — HTTP to the VPN container's control server. The tunnel lives
   inside a network namespace, so there is nothing on the host to inspect and
   piactl does not exist there.
@@ -25,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 _PIACTL_CANDIDATES = ("piactl", "/opt/piavpn/bin/piactl")
-_TUNNEL_PREFIXES = ("tun", "wg", "pia")
+_TUNNEL_PREFIXES = ("tun", "wg", "pia", "proton")
 # Public address used only as a routing probe; nothing is sent to it.
 _ROUTE_PROBE_ADDR = "1.1.1.1"
 
@@ -165,6 +168,31 @@ def _gluetun_status(config: dict[str, Any]) -> VpnStatus:
     return VpnStatus(active=True, ip=ip, detail="gluetun vpn status=running")
 
 
+def gluetun_forwarded_port(config: dict[str, Any] | None = None) -> int | None:
+    """The port gluetun negotiated with the provider, or None if unavailable.
+
+    Proton's NAT-PMP lease rotates, so this is a moving target rather than a
+    one-off setup value — see scripts/sync_pf_port.py. Returns None rather than
+    0 on any doubt: writing a bogus port into Deluge is worse than leaving the
+    old one, because it takes the daemon off a port that may still work.
+    """
+    config = config or {}
+    base = str(config.get("control_url") or "http://127.0.0.1:8000")
+    payload = _gluetun_get(base, "/v1/portforward", str(config.get("api_key") or ""))
+    if not isinstance(payload, dict):
+        return None
+
+    candidate = payload.get("port")
+    if not candidate:
+        ports = payload.get("ports")
+        candidate = ports[0] if isinstance(ports, list) and ports else None
+    try:
+        port = int(candidate)
+    except (TypeError, ValueError):
+        return None
+    return port if 0 < port < 65536 else None
+
+
 def vpn_status(
     provider: str = "pia", config: dict[str, Any] | None = None
 ) -> VpnStatus:
@@ -178,20 +206,27 @@ def vpn_status(
     exe = _piactl_path()
     if provider == "pia" and exe:
         state = _piactl_get(exe, "connectionstate")
-        if state is not None:
-            ip = _piactl_get(exe, "vpnip") if state == "Connected" else None
+        if state == "Connected":
             return VpnStatus(
-                active=state == "Connected",
-                ip=ip,
+                active=True,
+                ip=_piactl_get(exe, "vpnip"),
                 detail=f"piactl connectionstate={state}",
             )
+        # Anything else means *PIA* is not carrying traffic — not that nothing
+        # is. A machine can have PIA installed and idle while ProtonVPN holds
+        # the tunnel, so fall through to the route check rather than reporting
+        # inactive. Still fail-closed: only a positive answer below flips this
+        # to active.
 
-    # Fallback: a tunnel interface usually means a VPN is up.
-    tunnels = _tunnel_interfaces()
-    if tunnels:
+    # Fallback: ask which device is actually carrying traffic, not merely which
+    # interfaces exist. A tun* left behind by a dead session still shows up in
+    # /sys/class/net, so presence alone would report a leaking machine as safe —
+    # the exact mistake scripts/bind_vpn.py exists to prevent.
+    device = tunnel_device()
+    if device:
         return VpnStatus(
             active=True,
             ip=None,
-            detail=f"tunnel interface present: {', '.join(sorted(tunnels))}",
+            detail=f"tunnel device carrying traffic: {device}",
         )
-    return VpnStatus(active=False, ip=None, detail="no VPN tunnel detected")
+    return VpnStatus(active=False, ip=None, detail="no VPN tunnel carrying traffic")

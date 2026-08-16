@@ -2,7 +2,7 @@
 # Sourced by start.sh / stop.sh / restart.sh — not meant to be run directly.
 #
 # The stack has three independently-managed parts:
-#   1. PIA VPN          (piactl)            — downloads are refused unless it's up
+#   1. Host VPN         (route check)       — downloads are refused unless it's up
 #   2. Deluge daemon    (deluged, :58846)   — runs as you, ~/.config/deluge (Path B)
 #   3. Prowlarr + FlareSolverr (docker compose) — search backend
 
@@ -34,32 +34,54 @@ docker_cmd() {
 # --- generic ---------------------------------------------------------------
 port_in_use() { ss -ltnH "sport = :$1" 2>/dev/null | grep -q .; }
 
-# --- 1. PIA VPN ------------------------------------------------------------
-vpn_state()  { piactl get connectionstate 2>/dev/null || echo "Unknown"; }
-vpn_region() { piactl get region 2>/dev/null || echo "?"; }
+# --- 1. Host VPN -----------------------------------------------------------
+# Route-based rather than tied to one vendor's CLI. ProtonVPN's GNOME app has
+# no scriptable connect/disconnect the way piactl did, so these ask the kernel
+# which device is carrying traffic instead of asking a client what it thinks.
+# That is the stronger question anyway — it is what bind_vpn.py checks, and it
+# stays true for PIA, Proton, or a hand-rolled wg-quick tunnel.
 
-vpn_up() {
-  command -v piactl >/dev/null 2>&1 || { warn "piactl not found — skipping VPN"; return 0; }
-  log "Connecting PIA…"
-  piactl connect >/dev/null 2>&1 || true
-  for _ in $(seq 1 20); do [ "$(vpn_state)" = "Connected" ] && break; sleep 1; done
-  if [ "$(vpn_state)" = "Connected" ]; then
-    local region; region="$(vpn_region)"
-    ok "PIA connected — region=$region ip=$(piactl get vpnip 2>/dev/null)"
-    case "$region" in
-      uk-*) warn "UK exits sit behind court-ordered torrent-site blocks (HTTP 451)." \
-                 "Switch with:  piactl set region netherlands" ;;
-    esac
-  else
-    err "PIA never reached Connected (state=$(vpn_state)). Is the PIA app/daemon running?"; return 1
+# Live tunnel device name (proton0 / tun0 / wgpia0), or empty if none.
+vpn_device() {
+  [ -x "$VENV_PY" ] || return 0
+  "$VENV_PY" -c 'from torrent_agent.vpn import tunnel_device; print(tunnel_device() or "")' 2>/dev/null
+}
+
+vpn_state() { [ -n "$(vpn_device)" ] && echo "Connected" || echo "Disconnected"; }
+
+# Best-effort only: piactl exposed a region, the Proton app does not. Falls
+# back to the exit IP, which is the thing you actually want to eyeball.
+vpn_region() {
+  if command -v piactl >/dev/null 2>&1 && [ "$(piactl get connectionstate 2>/dev/null)" = "Connected" ]; then
+    piactl get region 2>/dev/null && return
   fi
+  curl -s --max-time 5 https://ifconfig.me 2>/dev/null || echo "?"
+}
+
+# Advisory. Connecting is the client's job — piactl could be driven headlessly,
+# the Proton GNOME app cannot, so this verifies rather than pretends to control.
+vpn_up() {
+  if command -v piactl >/dev/null 2>&1 && [ "$(piactl get connectionstate 2>/dev/null)" = "Connected" ]; then
+    ok "VPN up — piactl reports Connected, device $(vpn_device)"
+    return 0
+  fi
+  local dev; dev="$(vpn_device)"
+  if [ -n "$dev" ]; then
+    ok "VPN up — traffic leaving via $dev (exit $(vpn_region))"
+    return 0
+  fi
+  err "No VPN tunnel is carrying traffic. Connect ProtonVPN (tray icon or" \
+      "'protonvpn-app'), then re-run. Downloads are refused without it."
+  return 1
 }
 
 vpn_down() {
-  command -v piactl >/dev/null 2>&1 || return 0
-  log "Disconnecting PIA…"
-  piactl disconnect >/dev/null 2>&1 || true
-  ok "PIA disconnected"
+  if command -v piactl >/dev/null 2>&1; then
+    log "Disconnecting PIA…"
+    piactl disconnect >/dev/null 2>&1 || true
+  fi
+  [ -n "$(vpn_device)" ] && warn "A tunnel is still up — disconnect it from the VPN app." \
+                         || ok "No tunnel carrying traffic"
 }
 
 # --- 2. Deluge daemon ------------------------------------------------------
@@ -124,11 +146,9 @@ prowlarr_key() {
 
 health() {
   echo; log "Health:"
-  if command -v piactl >/dev/null 2>&1; then
-    local st; st="$(vpn_state)"
-    if [ "$st" = "Connected" ]; then ok "PIA           Connected (region $(vpn_region))"
-    else warn "PIA           $st"; fi
-  fi
+  local dev; dev="$(vpn_device)"
+  if [ -n "$dev" ]; then ok "VPN           carrying traffic on $dev"
+  else warn "VPN           no tunnel — downloads will be refused"; fi
   if port_in_use "$DELUGE_PORT"; then ok "Deluge        listening on 127.0.0.1:$DELUGE_PORT"
   else warn "Deluge        not listening on $DELUGE_PORT"; fi
   if [ -x "$VENV_PY" ]; then

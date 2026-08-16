@@ -26,14 +26,25 @@ context window.
   `.env` (gitignored) can hold `ANTHROPIC_API_KEY=...`.
 - **Deluge daemon:** `deluged` must be running on `127.0.0.1:58846`. Creds are
   read from `~/.config/deluge/auth` automatically.
-- **VPN gate:** PIA must report `Connected` (`piactl`) or `add_torrent` refuses.
-  Bring the whole stack up with `scripts/start.sh` (PIA → bind → deluged →
+- **VPN gate:** a tunnel must be carrying traffic or `add_torrent` refuses.
+  The host is on **ProtonVPN** (`proton0`) as of Aug 2026; PIA is still
+  installed but idle. `provider = "pia"` in config means "the host tunnel", not
+  the vendor — `vpn_status` only trusts `piactl` when it says `Connected`, and
+  otherwise falls through to a route check that covers Proton and anything
+  else. Bring the stack up with `scripts/start.sh` (VPN → bind → deluged →
   compose).
 - **VPN binding (the actual kill switch):** the `check_vpn` gate only covers
   add-time. `scripts/bind_vpn.py` pins Deluge's `listen_interface` and
   `outgoing_interface` to the live tunnel **device**, so a mid-download VPN
   drop kills transfers instead of rerouting them. `start.sh` applies it via
   `deluge_bind_vpn` before `deluge_up`; `--check` verifies (also in `health`).
+- **Forwarded port (gluetun stack only):** gluetun negotiates a port and
+  firewalls exactly that one, while Deluge ships `random_port: true` and
+  listens elsewhere — result is **zero inbound peers and no error anywhere**.
+  `scripts/sync_pf_port.py` reads `GET /v1/portforward` and sets Deluge's
+  `listen_ports` over RPC, turning `random_port` off so it cannot drift back.
+  Proton's NAT-PMP lease rotates, so run `--watch` alongside the stack;
+  `--check` reports and exits 1 on mismatch.
 
 ## Search stack
 
@@ -58,6 +69,15 @@ Prowlarr API key). Prowlarr + FlareSolverr run via `docker-compose.yml`.
   drops those two routes vanish and traffic silently resumes over `wlp1s0` —
   no error, no interruption. Confirmed by test: bound, the byte counter froze
   while disconnected even though the route had flipped to the LAN device.
+  The same reasoning applies to Proton — the device name changes (`proton0`),
+  the argument does not, which is why the check is route-based rather than
+  vendor-specific.
+- **A dead binding looks identical to a good one.** After the Proton switch
+  Deluge was still bound to `tun0`, which no longer existed. Nothing errored:
+  transfers simply never started, which fails safe but is invisible. Only
+  `bind_vpn.py --check` catches it — run it after *any* VPN change. Beware
+  checking its exit code through a pipe: `... | tail; echo $?` reports the
+  exit code of `tail`, not the script.
 - **Deluge's `core.conf` is not plain JSON** — it's two concatenated objects
   (`{"file","format"}` then the settings). `json.load()` fails on it; use
   `JSONDecoder.raw_decode` twice (see `deluge._binding_from_file`). Also,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Start the full torrent-agent stack, in dependency order:
-#   PIA VPN  ->  bind Deluge to the tunnel  ->  Deluge daemon  ->  Prowlarr
+#   Host VPN  ->  bind Deluge to the tunnel  ->  Deluge daemon  ->  Prowlarr
 # Each step is best-effort; the closing health check shows what actually came up.
 #
 # The order is load-bearing: Deluge binds its peer sockets to the tunnel device,

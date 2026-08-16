@@ -38,17 +38,28 @@ services:
       # Create the auth file with deploy/casaos/init-gluetun-auth.sh.
       - /mnt/data/AppData/gluetun:/gluetun
     env_file:
-      # OPENVPN_USER / OPENVPN_PASSWORD / GLUETUN_API_KEY. Never inline these.
+      # WIREGUARD_PRIVATE_KEY / GLUETUN_API_KEY. Never inline these.
+      # The WireGuard key is generated at account.protonvpn.com -> Downloads ->
+      # WireGuard configuration, and is NOT the desktop app's key: give the
+      # container its own, so revoking one does not take down the other. Tick
+      # NAT-PMP (Port Forwarding) when generating it — without that the tunnel
+      # comes up fine and port forwarding fails silently, logging nothing.
       - ../../.env.gluetun
     environment:
-      VPN_SERVICE_PROVIDER: private internet access
-      # PIA has no native WireGuard support in gluetun — OpenVPN is the only
-      # option, and costs some throughput. Do not "upgrade" this to wireguard.
-      VPN_TYPE: openvpn
-      # Exact string from the image's own server list; verified to support
-      # port forwarding. Mirrors the region the laptop uses today.
-      SERVER_REGIONS: Ireland
+      VPN_SERVICE_PROVIDER: protonvpn
+      # Proton supports WireGuard natively in gluetun, unlike PIA (which was
+      # stuck on OpenVPN and paid the throughput cost). Leave VPN_INTERFACE
+      # unset — gluetun names the device itself. Verified live: it keeps the
+      # name `tun0` even on WireGuard, so do not assume `wg0` anywhere.
+      VPN_TYPE: wireguard
+      # Proton selects by COUNTRY, not SERVER_REGIONS — that key is PIA's
+      # naming scheme and is silently ignored here.
+      SERVER_COUNTRIES: Ireland
       VPN_PORT_FORWARDING: "on"
+      # Only connect to servers that actually support port forwarding. Without
+      # it gluetun will happily pick one that cannot forward, and the port
+      # never arrives.
+      PORT_FORWARD_ONLY: "on"
       # Without this, the published ports above accept a TCP connection and
       # then reach nothing: gluetun's firewall drops them before Deluge sees
       # them. First thing to check if the web UI looks dead.
