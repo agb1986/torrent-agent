@@ -116,6 +116,7 @@ class Bot:
         self.jobs: queue.Queue[Job] = queue.Queue()
         self.current: Job | None = None
         self._offset: int | None = None
+        self._webhook_cleared = False
         self._stop = threading.Event()
 
     # --- durable log ------------------------------------------------------
@@ -297,6 +298,15 @@ class Bot:
         self.record("started", allowed=sorted(self.allowed))
         while not self._stop.is_set():
             try:
+                # Inside the loop, not before it: if Telegram is unreachable at
+                # startup this must back off like any other outage rather than
+                # exit. Exiting means systemd's StartLimitBurst gives up after
+                # a handful of tries and the bot stays down until someone
+                # notices — which is what happened on the server, where the ISP
+                # blocks Telegram and only the VPN route works.
+                if not self._webhook_cleared:
+                    self.client.delete_webhook()
+                    self._webhook_cleared = True
                 self.poll_once()
             except TelegramError as exc:
                 log.warning("poll failed, backing off: %s", exc)
@@ -346,7 +356,6 @@ def main() -> int:
         allowed_chat_ids=allowed,
         log_path=REPO_ROOT / "tmp" / "bot_audit.jsonl",
     )
-    bot.client.delete_webhook()
     try:
         bot.run_forever()
     except KeyboardInterrupt:

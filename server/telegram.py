@@ -33,8 +33,19 @@ class TelegramClient:
     ) -> None:
         if not token:
             raise TelegramError("No Telegram bot token. Set TELEGRAM_BOT_TOKEN.")
+        self._token = token
         self._base = f"{api_base}/bot{token}"
         self._session = session or requests.Session()
+
+    def _scrub(self, text: str) -> str:
+        """Strip the bot token out of anything headed for a log or exception.
+
+        The token is part of every request URL, and requests puts the full URL
+        in its exception messages. Unscrubbed, a single connection failure
+        writes the credential into the systemd journal, where it outlives the
+        incident by a long way — which is exactly how this was found.
+        """
+        return text.replace(self._token, "<token>") if self._token else text
 
     def _call(
         self, method: str, http_timeout: float, params: dict[str, Any] | None = None
@@ -48,7 +59,9 @@ class TelegramClient:
             )
             body = resp.json()
         except (requests.RequestException, ValueError) as exc:
-            raise TelegramError(f"{method} failed: {exc}") from exc
+            # `from None`, not `from exc`: a chained cause prints its own
+            # unscrubbed message in the traceback, undoing the redaction.
+            raise TelegramError(f"{method} failed: {self._scrub(str(exc))}") from None
         if not body.get("ok"):
             raise TelegramError(f"{method} rejected: {body.get('description', body)}")
         return body.get("result")

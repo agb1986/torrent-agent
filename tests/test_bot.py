@@ -353,3 +353,87 @@ def test_added_confirmation_is_empty_when_nothing_was_added():
     from server.bot import _format_added
 
     assert _format_added([]) == ""
+
+
+# --- credential handling and startup resilience ---------------------------
+
+
+def test_error_messages_do_not_leak_the_bot_token():
+    """A failed call must not put the token in the exception text.
+
+    The token is in every request URL and requests echoes the full URL in its
+    exception messages, so an unscrubbed error writes the credential into the
+    systemd journal — which is how this was found, after the server crash
+    looped against an ISP that blocks Telegram.
+    """
+    import requests
+
+    from server.telegram import TelegramClient, TelegramError
+
+    token = "8274413521:AAErxenmZ5qJZTqP0d7xoXPnWsWaD7nAOWE"
+
+    class _Boom:
+        def post(self, url, **kw):
+            raise requests.RequestException(
+                f"HTTPSConnectionPool: Max retries exceeded with url: "
+                f"/bot{token}/deleteWebhook (Network is unreachable)"
+            )
+
+    client = TelegramClient(token, session=_Boom())
+    try:
+        client.delete_webhook()
+    except TelegramError as exc:
+        text = str(exc)
+        assert token not in text, "token leaked into the exception message"
+        assert "<token>" in text
+        # The chained cause would print its own unscrubbed message.
+        assert exc.__cause__ is None
+    else:
+        raise AssertionError("expected TelegramError")
+
+
+def test_unreachable_telegram_at_startup_backs_off_instead_of_exiting(monkeypatch):
+    """Startup must survive an outage rather than exit.
+
+    delete_webhook used to run before the poll loop, so an unreachable API
+    exited 1; systemd's StartLimitBurst then gave up permanently and the bot
+    stayed down until a human noticed.
+    """
+    import server.bot as bot_mod
+    from server.telegram import TelegramError
+
+    calls = {"webhook": 0, "sleep": 0}
+
+    class _Client:
+        def delete_webhook(self):
+            calls["webhook"] += 1
+            raise TelegramError("deleteWebhook failed: Network is unreachable")
+
+        def get_updates(self, offset=None):
+            raise AssertionError("must not poll before the webhook is cleared")
+
+        def send_message(self, chat_id, text):
+            pass
+
+    b = bot_mod.Bot.__new__(bot_mod.Bot)
+    b.client = _Client()
+    b.log_path = __import__("pathlib").Path("/dev/null")
+    b.allowed = {1}
+    b._offset = None
+    b._webhook_cleared = False
+    b._stop = __import__("threading").Event()
+    b.jobs = __import__("queue").Queue()
+    b.current = None
+
+    def fake_sleep(_seconds):
+        calls["sleep"] += 1
+        b._stop.set()          # let the loop exit after one back-off
+
+    monkeypatch.setattr(bot_mod.time, "sleep", fake_sleep)
+    monkeypatch.setattr(bot_mod.threading, "Thread", lambda **kw: type(
+        "T", (), {"start": lambda self: None})())
+
+    b.run_forever()            # must return, not raise
+
+    assert calls["webhook"] == 1
+    assert calls["sleep"] == 1
