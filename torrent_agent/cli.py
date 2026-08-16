@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .agent import build_agent
 from .config import load_config
+from .imdb import expand as expand_imdb
 
 # Anchor artifacts to the repo, not the cwd — the ai-data-store hook watches
 # this repo's tmp/ directory, and the CLI may be invoked from anywhere.
@@ -62,6 +63,13 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     if not request:
         parser.error("no request given")
+
+    # An IMDb link names exactly one title, which is the least ambiguous way to
+    # ask. Indexers cannot search by id, so turn it into a title and year
+    # before the model or the search stack sees it.
+    request, imdb_note = expand_imdb(request)
+    if imdb_note:
+        print(f"IMDb: {imdb_note}", file=sys.stderr)
 
     config = load_config(args.config)
     try:

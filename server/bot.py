@@ -34,6 +34,7 @@ log = logging.getLogger("server.bot")
 USAGE = (
     "Commands:\n"
     "  /get <title>  — find a torrent and add it to Deluge\n"
+    "                (an IMDb link works too)\n"
     "  /status       — what the bot is doing right now\n"
     "  /cancel       — stop the current run and clear the queue"
 )
@@ -181,7 +182,12 @@ class Bot:
 
     def cmd_get(self, chat_id: int, who: str, request: str) -> None:
         if not request:
-            self.say(chat_id, "What should I fetch?\ne.g. /get the bear season 3")
+            self.say(
+                chat_id,
+                "What should I fetch?\n"
+                "e.g. /get the bear season 3\n"
+                "or   /get https://www.imdb.com/title/tt0995832/",
+            )
             return
         remaining = self.runner.cap.remaining()
         if remaining <= 0:
