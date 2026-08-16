@@ -40,6 +40,7 @@ class Outcome:
     message: str
     plan: TidyPlan | None = None
     delivered_to: str | None = None
+    jellyfin_ok: bool = True
     details: list[str] = field(default_factory=list)
 
 
@@ -133,13 +134,27 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
     # 5. Tell Jellyfin. Best-effort by design: the files have landed, so a
     #    failed scan is a nuisance, not a lost download.
     landed = f"{dest}/{plan.root.name}"
+    # scan_jellyfin swallows its own errors and reports them on stdout, so
+    # watch the printed output rather than trusting the absence of an
+    # exception — otherwise the summary claims a scan that never happened.
+    jellyfin_ok = True
     try:
-        transfer.scan_jellyfin(landed)
+        import io
+        from contextlib import redirect_stdout
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            transfer.scan_jellyfin(landed)
+        printed = buf.getvalue()
+        print(printed, end="")
+        jellyfin_ok = "[WARN]" not in printed
     except Exception as exc:  # noqa: BLE001 - never fail a delivered file
         log.warning("Jellyfin scan failed: %s", exc)
+        jellyfin_ok = False
 
     return Outcome(
-        True, "done", f"Delivered {plan.root.name}", plan=plan, delivered_to=landed
+        True, "done", f"Delivered {plan.root.name}", plan=plan, delivered_to=landed,
+        jellyfin_ok=jellyfin_ok,
     )
 
 
@@ -148,11 +163,14 @@ def format_outcome(outcome: Outcome) -> str:
     if outcome.ok:
         plan = outcome.plan
         count = len(plan.moves) if plan else 0
-        return (
-            f"✅ {outcome.message}\n"
-            f"   {count} file(s) → {outcome.delivered_to}\n"
-            f"   Jellyfin notified."
+        tail = (
+            "Jellyfin notified."
+            if outcome.jellyfin_ok
+            else "Jellyfin did NOT pick it up — the files are in place, "
+                 "so a library scan will find them."
         )
+        return f"✅ {outcome.message}\n   {count} file(s) → {outcome.delivered_to}\n   {tail}"
+
 
     lines = [f"⚠️ {outcome.message}"]
     if outcome.details:

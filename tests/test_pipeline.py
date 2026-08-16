@@ -188,3 +188,27 @@ def test_longest_prefix_wins():
 def test_unmapped_paths_pass_through_untouched():
     # A native deluged already reports host paths; it should need no config.
     assert pipeline.host_path("/home/me/Downloads/X", {"deluge": {}}) == "/home/me/Downloads/X"
+
+
+def test_a_failed_jellyfin_scan_is_not_reported_as_notified(wired, monkeypatch, tmp_path):
+    """The summary must not claim a scan that did not happen.
+
+    scan_jellyfin catches its own errors and prints a [WARN] rather than
+    raising, so "no exception" is not evidence of success — the first real run
+    delivered correctly and cheerfully reported "Jellyfin notified" after two
+    HTTP 500s.
+    """
+    import transfer
+
+    plan = _confident_plan(tmp_path)
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: plan)
+    monkeypatch.setattr(
+        transfer, "scan_jellyfin",
+        lambda path: print("[WARN] Jellyfin scan failed (500) — transfer itself was fine"),
+    )
+
+    outcome = pipeline.run(wired["torrent"], CONFIG)
+
+    assert outcome.ok                    # the files did land
+    assert outcome.jellyfin_ok is False
+    assert "did NOT pick it up" in pipeline.format_outcome(outcome)
