@@ -48,6 +48,28 @@ def _destination_for(kind: str, config: dict[str, Any]) -> str | None:
     return dests.get("tv" if kind == "tv" else "film")
 
 
+def host_path(container_path: str, config: dict[str, Any]) -> str:
+    """Translate a path Deluge reports into one this process can open.
+
+    Deluge runs in a container and answers with its own view — `/downloads`,
+    which does not exist on the host, where the same files are at
+    /mnt/data/downloads. Configured as [deluge.path_map], the same shape as
+    [jellyfin.path_map], and for the same reason. Longest prefix wins.
+
+    Unmapped paths pass through unchanged: a native deluged reports host paths
+    already, and nothing should need configuring for it.
+    """
+    mapping = config.get("deluge", {}).get("path_map", {}) or {}
+    best = None
+    for inside, outside in mapping.items():
+        if container_path == inside or container_path.startswith(inside.rstrip("/") + "/"):
+            if best is None or len(inside) > len(best[0]):
+                best = (inside, outside)
+    if best is None:
+        return container_path
+    return best[1].rstrip("/") + container_path[len(best[0].rstrip("/")):]
+
+
 def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
     """Take one finished torrent all the way to Jellyfin.
 
@@ -56,7 +78,7 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
     import transfer  # noqa: E402  (path set above)
 
     name = torrent.get("name") or "?"
-    source = Path(torrent.get("save_path") or "") / name
+    source = Path(host_path(str(torrent.get("save_path") or ""), config)) / name
     if not source.exists():
         return Outcome(
             False, "locate", f"Downloaded {name}, but {source} is not on disk."

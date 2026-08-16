@@ -155,3 +155,36 @@ def test_the_message_says_nothing_moved_when_it_refuses():
     )
     assert "Left where it is" in text
     assert "S01E09" in text
+
+
+# --- container vs host paths ----------------------------------------------
+
+
+def test_container_paths_are_translated_to_host_paths():
+    """Deluge answers with its own view of the filesystem.
+
+    It runs in a container and reports /downloads, which does not exist on the
+    host, where the same files live at /mnt/data/downloads. Found the hard way:
+    the pipeline refused a real download because the path it was handed did not
+    exist — correctly, but for a reason no test had covered.
+    """
+    cfg = {"deluge": {"path_map": {"/downloads": "/mnt/data/downloads"}}}
+    assert pipeline.host_path("/downloads/Show.S01", cfg) == "/mnt/data/downloads/Show.S01"
+    assert pipeline.host_path("/downloads", cfg) == "/mnt/data/downloads"
+
+
+def test_longest_prefix_wins():
+    cfg = {
+        "deluge": {
+            "path_map": {
+                "/downloads": "/mnt/data/downloads",
+                "/downloads/complete": "/mnt/fast/complete",
+            }
+        }
+    }
+    assert pipeline.host_path("/downloads/complete/X", cfg) == "/mnt/fast/complete/X"
+
+
+def test_unmapped_paths_pass_through_untouched():
+    # A native deluged already reports host paths; it should need no config.
+    assert pipeline.host_path("/home/me/Downloads/X", {"deluge": {}}) == "/home/me/Downloads/X"

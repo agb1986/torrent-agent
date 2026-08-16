@@ -29,6 +29,14 @@ password = ""
 # only symptom of getting this wrong is an unexplained "Bad login".
 auth_file = ""
 
+# Container path -> host path, for a Deluge running in a container. It reports
+# save_path from inside its own namespace (/downloads), which does not exist on
+# the host, where the same files are at /mnt/data/downloads. Only the automated
+# pipeline needs this; a native deluged already reports host paths and can leave
+# it empty.
+[deluge.path_map]
+# "/downloads" = "/mnt/data/downloads"
+
 [vpn]
 # "pia"     -> the tunnel on this machine (the laptop). piactl when PIA is
 #              installed and connected, otherwise a route check that covers
