@@ -65,8 +65,18 @@ class Report:
         return [c for c in self.checks if c.status == FAIL]
 
 
-def _http(url: str, headers: dict[str, str] | None = None) -> tuple[int | None, str]:
+# Local services must not be reached through a proxy the bot set for Telegram.
+# Telegram must be, on networks that block it. So the choice is per call.
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _http(
+    url: str, headers: dict[str, str] | None = None, direct: bool = True
+) -> tuple[int | None, str]:
     """GET a url, retrying once on a server error or a connection failure.
+
+    ``direct`` bypasses any configured proxy, which is right for everything on
+    the LAN or loopback. Telegram is the exception and passes direct=False.
 
     Not on 4xx: a rejected key is a real answer and retrying only slows the
     report down. But a single 500 usually means the service was busy, and a
@@ -77,7 +87,8 @@ def _http(url: str, headers: dict[str, str] | None = None) -> tuple[int | None, 
     last: tuple[int | None, str] = (None, "")
     for attempt in (1, 2):
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            opener = _DIRECT.open if direct else urllib.request.urlopen
+            with opener(req, timeout=_TIMEOUT) as resp:
                 return resp.status, ""
         except urllib.error.HTTPError as exc:
             last = (exc.code, str(exc))
@@ -343,7 +354,9 @@ def check_telegram(r: Report) -> None:
     if not token:
         r.add("telegram", SKIP, "no bot token in the environment")
         return
-    code, err = _http(f"https://api.telegram.org/bot{token}/getMe")
+    # Deliberately proxied: on a network that blocks Telegram, going direct
+    # would report a failure the bot itself does not have.
+    code, err = _http(f"https://api.telegram.org/bot{token}/getMe", direct=False)
     if code == 200:
         allowed = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "").strip()
         if not allowed:
