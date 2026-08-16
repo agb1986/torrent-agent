@@ -1,11 +1,11 @@
 # VPN + Deluge, with Deluge locked inside the tunnel's network namespace.
 #
 # Server:
-#   docker compose -f deploy/casaos/docker-compose.yml up -d
+#   docker compose -f deploy/server/docker-compose.yml up -d
 #
 # Laptop rehearsal (alternate ports + paths, so it runs beside the existing stack):
-#   docker compose -f deploy/casaos/docker-compose.yml \
-#                  -f deploy/casaos/docker-compose.local.yml up -d
+#   docker compose -f deploy/server/docker-compose.yml \
+#                  -f deploy/server/docker-compose.local.yml up -d
 #
 # The load-bearing line is deluge's `network_mode: service:gluetun`. Deluge gets
 # no network interface except the tunnel, so stopping gluetun kills transfers
@@ -20,8 +20,8 @@ name: torrent-agent-vpn
 
 services:
   gluetun:
-    # Pinned to the digest verified in L0 (amd64, built 2026-08-07). Laptop and
-    # casaos are both x86_64, so this is byte-identical in both places.
+    # Pinned to a digest verified on amd64 (built 2026-08-07). Change it if
+    # you are on arm64 — this tag is not multi-arch by digest.
     image: qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461
     container_name: gluetun
     restart: unless-stopped
@@ -38,12 +38,14 @@ services:
       - "127.0.0.1:8888:8888"  # HTTP proxy out through the tunnel
     volumes:
       # Holds servers.json, the OpenVPN state, and auth/config.toml.
-      # Create the auth file with deploy/casaos/init-gluetun-auth.sh.
-      - /mnt/data/AppData/gluetun:/gluetun
+      # Create the auth file with deploy/server/init-gluetun-auth.sh.
+      - ${APPDATA_ROOT:-./appdata}/gluetun:/gluetun
     env_file:
       # WIREGUARD_PRIVATE_KEY / GLUETUN_API_KEY. Never inline these.
-      # The WireGuard key is generated at account.protonvpn.com -> Downloads ->
-      # WireGuard configuration, and is NOT the desktop app's key: give the
+      # For Proton the WireGuard key comes from account.protonvpn.com ->
+      # Downloads -> WireGuard configuration, and is NOT the desktop app's
+      # key. Other providers want different variables entirely (often
+      # OPENVPN_USER/OPENVPN_PASSWORD) — see gluetun's docs. Give the
       # container its own, so revoking one does not take down the other. Tick
       # NAT-PMP (Port Forwarding) when generating it — without that the tunnel
       # comes up fine and port forwarding fails. It does say so, clearly:
@@ -52,15 +54,18 @@ services:
       # so check `docker logs gluetun` before assuming anything subtler.
       - ../../.env.gluetun
     environment:
-      VPN_SERVICE_PROVIDER: protonvpn
-      # Proton supports WireGuard natively in gluetun, unlike PIA (which was
-      # stuck on OpenVPN and paid the throughput cost). Leave VPN_INTERFACE
-      # unset — gluetun names the device itself. Verified live: it keeps the
-      # name `tun0` even on WireGuard, so do not assume `wg0` anywhere.
-      VPN_TYPE: wireguard
-      # Proton selects by COUNTRY, not SERVER_REGIONS — that key is PIA's
-      # naming scheme and is silently ignored here.
-      SERVER_COUNTRIES: Ireland
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:-protonvpn}
+      # gluetun supports ~50 providers; set VPN_SERVICE_PROVIDER and the
+      # matching credentials in .env and this file needs no edits. Not every
+      # provider offers WireGuard — PIA, for one, is OpenVPN-only here, so set
+      # VPN_TYPE=openvpn for those. Leave VPN_INTERFACE unset: gluetun names
+      # the device itself, and keeps the name `tun0` even on WireGuard, so do
+      # not assume `wg0` anywhere.
+      VPN_TYPE: ${VPN_TYPE:-wireguard}
+      # Providers differ in how they name locations: Proton selects by
+      # COUNTRY, PIA by SERVER_REGIONS. The wrong key is silently ignored, so
+      # check gluetun's docs for yours if no server is ever chosen.
+      SERVER_COUNTRIES: ${VPN_COUNTRIES:-Netherlands}
       VPN_PORT_FORWARDING: "on"
       # Only connect to servers that actually support port forwarding. Without
       # it gluetun will happily pick one that cannot forward, and the port
@@ -82,7 +87,7 @@ services:
       # loop just backs off and recovers on its own.
       HTTPPROXY: "on"
       HTTPPROXY_LISTENING_ADDRESS: ":8888"
-      TZ: Europe/Dublin
+      TZ: ${TZ:-Etc/UTC}
 
   deluge:
     image: lscr.io/linuxserver/deluge:latest
@@ -105,9 +110,9 @@ services:
         restart: true
     environment:
       # Matches the uid/gid that owns the data directories.
-      PUID: 1000
-      PGID: 1000
-      TZ: Europe/Dublin
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
     volumes:
-      - /mnt/data/AppData/deluge:/config
-      - /mnt/data/downloads:/downloads
+      - ${APPDATA_ROOT:-./appdata}/deluge:/config
+      - ${DOWNLOADS_DIR:-./downloads}:/downloads

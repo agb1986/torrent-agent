@@ -6,7 +6,7 @@ need root, so they are not part of any script here.
 ## `resolved-mdns.conf` — keep `.local` working under ProtonVPN
 
 **Symptom:** `scripts/transfer.py` and the Jellyfin scan stop working.
-`casaos.local` does not resolve. The server is fine, reachable by IP, and
+a `.local` hostname stops resolving. The server is fine, reachable by IP, and
 nothing logs a reason.
 
 **Cause:** ProtonVPN takes DNS over completely. The LAN link is left with *no*
@@ -34,8 +34,8 @@ Both are needed.
 **Verify:**
 
 ```bash
-getent hosts casaos.local     # expect an address
-curl -s -o /dev/null -w '%{http_code}\n' http://casaos.local:8096/System/Info/Public
+getent hosts your-server.local   # expect an address
+curl -s -o /dev/null -w '%{http_code}\n' http://your-server.local:8096/System/Info/Public
 ```
 
 `200` from the second means the media pipeline is whole again. Note the name
