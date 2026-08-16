@@ -83,6 +83,7 @@ Prowlarr API key). Prowlarr + FlareSolverr run via `docker-compose.yml`.
   `sudo resolvectl mdns wlp1s0 yes` plus `MulticastDNS=yes` in
   `/etc/systemd/resolved.conf.d/mdns.conf` to survive reboot. Note it then
   resolves to an IPv6 link-local address, which is fine for ssh/rsync/curl.
+  Both steps, and the verification, are in `deploy/host/`.
 - **A dead binding looks identical to a good one.** After the Proton switch
   Deluge was still bound to `tun0`, which no longer existed. Nothing errored:
   transfers simply never started, which fails safe but is invisible. Only
