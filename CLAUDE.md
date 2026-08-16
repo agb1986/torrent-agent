@@ -72,6 +72,17 @@ Prowlarr API key). Prowlarr + FlareSolverr run via `docker-compose.yml`.
   The same reasoning applies to Proton — the device name changes (`proton0`),
   the argument does not, which is why the check is route-based rather than
   vendor-specific.
+- **ProtonVPN breaks `casaos.local` (and every other `.local` name).** Proton
+  takes DNS over completely: the LAN link is left with *no* resolver and all
+  queries go to systemd-resolved, which — with mDNS disabled — answers `.local`
+  with an authoritative NXDOMAIN instead of routing it to multicast. avahi
+  knows the answer the whole time; nothing ever asks it. PIA never did this,
+  because it left the LAN link's DNS intact under its split routes. Symptom:
+  `scripts/transfer.py` and the Jellyfin scan fail while the server is
+  perfectly healthy by IP. Fix:
+  `sudo resolvectl mdns wlp1s0 yes` plus `MulticastDNS=yes` in
+  `/etc/systemd/resolved.conf.d/mdns.conf` to survive reboot. Note it then
+  resolves to an IPv6 link-local address, which is fine for ssh/rsync/curl.
 - **A dead binding looks identical to a good one.** After the Proton switch
   Deluge was still bound to `tun0`, which no longer existed. Nothing errored:
   transfers simply never started, which fails safe but is invisible. Only
