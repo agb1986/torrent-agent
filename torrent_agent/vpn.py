@@ -112,6 +112,17 @@ def tunnel_device() -> str | None:
     return tunnels[0] if tunnels else None
 
 
+# "pia" was the original name, from when PIA was the only host VPN supported.
+# It has meant "the tunnel on this machine, whatever carries it" for a while;
+# accepted forever so existing configs keep working.
+_HOST_PROVIDERS = {"host", "pia"}
+
+
+def normalise_provider(provider: str) -> str:
+    """Fold legacy provider names onto current ones."""
+    return "host" if str(provider or "").lower() in _HOST_PROVIDERS else str(provider)
+
+
 def binding_is_structural(provider: str) -> bool:
     """True when containment comes from the runtime, not from Deluge's config.
 
@@ -120,7 +131,7 @@ def binding_is_structural(provider: str) -> bool:
     nothing for scripts/bind_vpn.py to fix. Under PIA-on-the-host the binding
     is a real, separately-verifiable setting.
     """
-    return provider == "gluetun"
+    return normalise_provider(provider) == "gluetun"
 
 
 def _gluetun_get(base_url: str, path: str, api_key: str) -> Any | None:
@@ -194,17 +205,18 @@ def gluetun_forwarded_port(config: dict[str, Any] | None = None) -> int | None:
 
 
 def vpn_status(
-    provider: str = "pia", config: dict[str, Any] | None = None
+    provider: str = "host", config: dict[str, Any] | None = None
 ) -> VpnStatus:
     """Return the current VPN status for ``provider``.
 
     ``config`` is the ``[vpn]`` block; only the gluetun path needs it.
     """
+    provider = normalise_provider(provider)
     if provider == "gluetun":
         return _gluetun_status(config or {})
 
     exe = _piactl_path()
-    if provider == "pia" and exe:
+    if provider == "host" and exe:
         state = _piactl_get(exe, "connectionstate")
         if state == "Connected":
             return VpnStatus(

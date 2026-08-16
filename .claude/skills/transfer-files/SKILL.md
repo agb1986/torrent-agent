@@ -1,11 +1,19 @@
 ---
 name: transfer-files
-description: Transfer media to the CASAOS server (casaos@casaos.local) over rsync/SSH - either a whole tidied directory via scripts/transfer.py, or a single file into a show's existing season directory. Use when the user wants to send, push, upload, copy, or sync files to the CASAOS/media server.
+description: Transfer media to the media server over rsync/SSH (or a local move when it is this machine) - either a whole tidied directory via scripts/transfer.py, or a single file into a show's existing season directory. Use when the user wants to send, push, upload, copy, or sync files to the media server.
 ---
 
 # Transfer Files
 
-Send media to the CASAOS server at `casaos@casaos.local`.
+> **Placeholders below** — `$SERVER` is `user@host`, `$TV_DIR` / `$FILM_DIR`
+> are the entries under `[server.destinations]`, and `$JELLYFIN_URL` is
+> `[jellyfin] url`, all from the active `config.toml`. They are not
+> environment variables; read the values out of the config before running
+> anything. An empty `[server] host` means the library is on this machine, so
+> there is nothing to ssh to — use local paths directly.
+
+
+Send media to the configured media server.
 
 Files should already be tidied into their target naming before transfer — use
 the **tidy-files** skill first if they are not.
@@ -16,29 +24,29 @@ The server uses key auth via `~/.ssh/id_rsa_ha`. Both `transfer.py` and direct
 `ssh`/`rsync` commands can be run straight from the Bash tool — no password
 prompt, no need to ask the user to run them.
 
-If a command fails with `Could not resolve hostname casaos.local`, just retry —
+If a command fails with `Could not resolve hostname $SERVER_HOST`, just retry —
 mDNS resolution is intermittently flaky on this box and recovers on its own.
 
 ## Destinations
 
 | Flag | Path on server | Holds |
 |---|---|---|
-| `--tv` | `/mnt/data/tv` | `Show Name (Year) [tmdbid-N]/Season XX/SXXEYY - Episode.ext` |
-| `--film` | `/mnt/data/film` | flat `Film Name (Year) [tmdbid-N].ext` files |
+| `--tv` | `$TV_DIR` | `Show Name (Year) [tmdbid-N]/Season XX/SXXEYY - Episode.ext` |
+| `--film` | `$FILM_DIR` | flat `Film Name (Year) [tmdbid-N].ext` files |
 | `--book` | `/media/local/books` | |
 | `--manga` | `/media/local/manga` | |
 
 ## Step 1 — Locate what to transfer
 
 Media lives in Deluge's download directory, the same as for **tidy-files** —
-`/mnt/data/downloads` on the CasaOS server. Resolve what the
+`$DOWNLOADS_DIR` on the CasaOS server. Resolve what the
 user gave you against it:
 
 - **An explicit path** → use it as-is.
 - **A bare title** (`succession`, `withnail`) → search for it:
 
   ```bash
-  find /mnt/data/downloads -maxdepth 2 -iname "*succession*"
+  find $DOWNLOADS_DIR -maxdepth 2 -iname "*succession*"
   ```
 
 - **Nothing at all** → list the download directory and ask which item to send.
@@ -89,22 +97,22 @@ Nothing further to do — the script handles the scan.
 1. List the shows to find the exact directory name:
 
    ```bash
-   ssh casaos@casaos.local 'ls /mnt/data/tv'
+   ssh $SERVER 'ls $TV_DIR'
    ```
 
 2. List that show's contents to confirm the season directory and match its
    existing naming convention:
 
    ```bash
-   ssh casaos@casaos.local 'ls "/mnt/data/tv/Show Name"'
-   ssh casaos@casaos.local 'ls "/mnt/data/tv/Show Name/Season 01"'
+   ssh $SERVER 'ls "$TV_DIR/Show Name"'
+   ssh $SERVER 'ls "$TV_DIR/Show Name/Season 01"'
    ```
 
    Name the new file consistently with what is already there. If the season
    directory does not exist, create it first:
 
    ```bash
-   ssh casaos@casaos.local 'mkdir -p "/mnt/data/tv/Show Name/Season 01"'
+   ssh $SERVER 'mkdir -p "$TV_DIR/Show Name/Season 01"'
    ```
 
 3. rsync the file into that directory (note the trailing slash on the
@@ -112,7 +120,7 @@ Nothing further to do — the script handles the scan.
 
    ```bash
    rsync -avh --progress "S01E05 - Title.mkv" \
-     "casaos@casaos.local:/mnt/data/tv/Show Name/Season 01/"
+     "$SERVER:$TV_DIR/Show Name/Season 01/"
    ```
 
 4. Confirm success from the rsync output and report the transferred size.
@@ -122,7 +130,7 @@ Nothing further to do — the script handles the scan.
 
 ## Triggering a Jellyfin scan
 
-Jellyfin runs on the server at `http://casaos.local:8096`, authenticated with
+Jellyfin runs on the server at `$JELLYFIN_URL`, authenticated with
 the `X-Emby-Token` header. The API key is in the global env as
 `JELLYFIN_API_KEY`, which sits behind the non-interactive guard in `~/.bashrc`
 — so reach it through an interactive shell (`bash -ic '...'`), the same as
@@ -139,7 +147,7 @@ POST /Library/Media/Updated
 
 ```bash
 bash -ic 'curl -s -o /dev/null -w "%{http_code}\n" \
-  -X POST "http://casaos.local:8096/Library/Media/Updated" \
+  -X POST "$JELLYFIN_URL/Library/Media/Updated" \
   -H "X-Emby-Token: $JELLYFIN_API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"Updates\":[{\"Path\":\"/media/tv/Show Name\",\"UpdateType\":\"Created\"}]}"'
@@ -148,7 +156,7 @@ bash -ic 'curl -s -o /dev/null -w "%{http_code}\n" \
 Two things make this go wrong silently:
 
 - **Paths must be translated.** The Jellyfin container mounts the libraries
-  separately: `/mnt/data/tv` → `/media/tv` and `/mnt/data/film` →
+  separately: `$TV_DIR` → `/media/tv` and `$FILM_DIR` →
   `/media/movies`. So scan `/media/tv/Show Name` or
   `/media/movies/Film - Year.mkv`, never a `/mnt/data/...` path. (This is NOT
   the single-prefix mapping the old Plex setup used.)
@@ -160,7 +168,7 @@ Fallback if the targeted update misbehaves — full library scan:
 
 ```bash
 bash -ic 'curl -s -o /dev/null -w "%{http_code}\n" -X POST \
-  "http://casaos.local:8096/Library/Refresh" -H "X-Emby-Token: $JELLYFIN_API_KEY"'
+  "$JELLYFIN_URL/Library/Refresh" -H "X-Emby-Token: $JELLYFIN_API_KEY"'
 ```
 
 `/media/local/books` and `/media/local/manga` are not Jellyfin libraries — no
@@ -173,7 +181,7 @@ Because the status code proves nothing, verify by searching for the title.
 
 ```bash
 bash -ic 'curl -s -H "X-Emby-Token: $JELLYFIN_API_KEY" \
-  "http://casaos.local:8096/Items?searchTerm=Succession&recursive=true&includeItemTypes=Series"' \
+  "$JELLYFIN_URL/Items?searchTerm=Succession&recursive=true&includeItemTypes=Series"' \
   | python3 -m json.tool | grep -E "\"Name\"|\"TotalRecordCount\""
 ```
 

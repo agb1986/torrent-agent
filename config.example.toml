@@ -38,13 +38,14 @@ auth_file = ""
 # "/downloads" = "/srv/media/downloads"
 
 [vpn]
-# "pia"     -> the tunnel on this machine (the laptop). piactl when PIA is
-#              installed and connected, otherwise a route check that covers
-#              ProtonVPN (proton0) and any other host tunnel.
+# "host"    -> the tunnel on this machine. piactl when PIA is installed and
+#              connected, otherwise a route check that covers ProtonVPN
+#              (proton0), WireGuard and anything else holding the default
+#              route. ("pia" still works as a legacy alias.)
 # "gluetun" -> the VPN container's control server (the server, and the
 #              containerised rehearsal stack). Required there because the
 #              tunnel lives in a network namespace, not on the host.
-provider = "pia"
+provider = "host"
 # gluetun only. The api_key must match a role in gluetun's
 # /gluetun/auth/config.toml — see deploy/server/init-gluetun-auth.sh.
 # Prefer the GLUETUN_API_KEY env var over storing it here.
@@ -77,6 +78,13 @@ ssh_key = ""         # e.g. "~/.ssh/id_rsa" — only needed for a remote host
 # flags (--film, --tv, ...). Point them wherever your library lives.
 # film = "/srv/media/film"
 # tv = "/srv/media/tv"
+
+[media_server]
+# "jellyfin", "emby" (same API and token header), or "none". Leave empty to
+# infer: a [jellyfin] url below means jellyfin, no url means none. "none" is a
+# real answer — plenty of setups have no media server, and it should not warn
+# on every delivery. Plex needs a different client and is not supported.
+kind = ""
 
 [jellyfin]
 # Jellyfin on the media server; transfer.py asks it to scan after a transfer.

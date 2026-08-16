@@ -1,6 +1,6 @@
 ---
 name: fetch-to-jellyfin
-description: Full pipeline - fetch a torrent, wait for the download to finish, remove it from Deluge, tidy the files, transfer them to the CASAOS server, and let Jellyfin pick them up. Use when the user wants media downloaded AND delivered to the server/Jellyfin in one go (e.g. "get X onto the server", "download and add X to jellyfin").
+description: Full pipeline - fetch a torrent, wait for the download to finish, remove it from Deluge, tidy the files, deliver them to the media server, and let it pick them up. Use when the user wants media downloaded AND delivered to the server/Jellyfin in one go (e.g. "get X onto the server", "download and add X to jellyfin").
 ---
 
 # Fetch to Jellyfin
@@ -51,7 +51,7 @@ A multi-episode request adds several torrents — collect every id.
 Poll with the **download-status** skill:
 
 ```bash
-cd /home/agb86/workspace/repos/torrent-agent && .venv/bin/python scripts/status.py
+cd <project root> && .venv/bin/python scripts/status.py
 ```
 
 - Use the reported ETA to pick the poll interval: check again at roughly the
@@ -70,7 +70,7 @@ Once the download has completed — and **only** then — remove the torrent(s)
 this run added, before tidying. Pass every id from Stage 1:
 
 ```bash
-cd /home/agb86/workspace/repos/torrent-agent && \
+cd <project root> && \
   .venv/bin/python scripts/remove_seeding.py --id <torrent_id> [--id <torrent_id> ...]
 ```
 

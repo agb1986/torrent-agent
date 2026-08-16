@@ -32,11 +32,13 @@ DEFAULTS: dict[str, Any] = {
         # is an unexplained "Bad login".
         "auth_file": "",
     },
-    # provider "pia" uses piactl on this machine; "gluetun" queries the VPN
-    # container's control server, which is the only option on a host where the
-    # tunnel lives in a namespace rather than on the box.
+    # "host" is the tunnel on this machine, whatever carries it — piactl when
+    # PIA is installed and connected, otherwise a route check that covers
+    # ProtonVPN, WireGuard and the rest. "gluetun" queries the VPN container's
+    # control server, the only option where the tunnel lives in a namespace
+    # rather than on the box. "pia" is accepted as a legacy alias for "host".
     "vpn": {
-        "provider": "pia",
+        "provider": "host",
         "control_url": "http://127.0.0.1:8000",
         "api_key": "",
     },
@@ -65,6 +67,9 @@ DEFAULTS: dict[str, Any] = {
     # the scan is skipped rather than failing. path_map translates server
     # paths into the paths the media server's container sees — mappings are
     # per-install, so there is no sensible default.
+    # "jellyfin", "emby" (same API), or "none". Empty means: infer from
+    # whether a url is configured, so existing setups need no change.
+    "media_server": {"kind": ""},
     "jellyfin": {
         "url": "",
         "api_key": "",

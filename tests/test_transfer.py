@@ -105,3 +105,58 @@ def test_a_missing_source_reports_failure_rather_than_raising(tmp_path):
     dest = tmp_path / "tv"
     dest.mkdir()
     assert transfer.transfer_local(str(tmp_path / "absent"), str(dest)) == 1
+
+
+# --- media server selection -----------------------------------------------
+
+
+def test_no_media_server_configured_is_silent(monkeypatch, capsys):
+    """Having no media server is a setup, not a misconfiguration.
+
+    It used to warn on every single delivery that JELLYFIN_API_KEY was unset,
+    which trains people to ignore warnings.
+    """
+    monkeypatch.setitem(transfer.CONFIG, "media_server", {"kind": ""})
+    monkeypatch.setitem(transfer.JELLYFIN, "url", "")
+
+    transfer.notify_library("/srv/media/tv/Show")
+
+    assert capsys.readouterr().out == ""
+
+
+def test_kind_is_inferred_from_a_configured_url(monkeypatch):
+    monkeypatch.setitem(transfer.CONFIG, "media_server", {"kind": ""})
+    monkeypatch.setitem(transfer.JELLYFIN, "url", "http://media.local:8096")
+    assert transfer.media_server_kind() == "jellyfin"
+
+    monkeypatch.setitem(transfer.JELLYFIN, "url", "")
+    assert transfer.media_server_kind() == "none"
+
+
+def test_an_explicit_kind_wins_over_inference(monkeypatch):
+    monkeypatch.setitem(transfer.CONFIG, "media_server", {"kind": "none"})
+    monkeypatch.setitem(transfer.JELLYFIN, "url", "http://media.local:8096")
+    assert transfer.media_server_kind() == "none"
+
+
+def test_an_unsupported_kind_says_so_rather_than_failing_obscurely(monkeypatch, capsys):
+    # Plex needs a different client; better to name it than to send Jellyfin
+    # calls at it and report a confusing HTTP error.
+    monkeypatch.setitem(transfer.CONFIG, "media_server", {"kind": "plex"})
+
+    transfer.notify_library("/srv/media/tv/Show")
+
+    assert "not supported" in capsys.readouterr().out
+
+
+def test_emby_uses_the_jellyfin_path(monkeypatch):
+    monkeypatch.setitem(transfer.CONFIG, "media_server", {"kind": "emby"})
+    monkeypatch.setitem(transfer.JELLYFIN, "url", "http://media.local:8096")
+    monkeypatch.setitem(transfer.JELLYFIN, "api_key", "k")
+    monkeypatch.setitem(transfer.JELLYFIN, "path_map", {"/srv/media/tv": "/media/tv"})
+    posted = {}
+    monkeypatch.setattr(transfer, "_jellyfin_post",
+                        lambda path, key, body=None: posted.setdefault("path", path) or 204)
+
+    transfer.notify_library("/srv/media/tv/Show")
+    assert posted["path"] == "/Library/Media/Updated"

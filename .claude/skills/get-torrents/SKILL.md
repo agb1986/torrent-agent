@@ -16,7 +16,7 @@ they want to download before proceeding.
 
 ## Step 2 — Run the agent
 
-Always run from the project root (`/home/agb86/workspace/repos/torrent-agent`).
+Always run from the project root.
 Source `.env` before invoking so `ANTHROPIC_API_KEY` is available to the
 subprocess (it is behind the non-interactive guard in `~/.bashrc`):
 

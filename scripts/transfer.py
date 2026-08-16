@@ -174,16 +174,41 @@ def _jellyfin_post(path: str, api_key: str, body: dict | None = None) -> int:
         return response.status
 
 
-def scan_jellyfin(host_path: str) -> None:
-    """Tell Jellyfin about the path we just transferred into.
+def media_server_kind() -> str:
+    """Which media server to tell, or "none".
+
+    Explicit [media_server] kind wins. Otherwise it is inferred: a configured
+    url means Jellyfin (how this was always set up), and no url means there is
+    no media server — which is a legitimate setup, not a misconfiguration, so
+    it must not warn on every delivery.
+    """
+    kind = str(CONFIG.get("media_server", {}).get("kind") or "").lower()
+    if kind:
+        return kind
+    return "jellyfin" if JELLYFIN.get("url") else "none"
+
+
+def notify_library(host_path: str) -> None:
+    """Tell the media server about the path we just delivered into.
 
     Uses /Library/Media/Updated (the targeted endpoint the *arr apps use) and
     falls back to a full /Library/Refresh. Best-effort: the files are already
-    on the server, so a failure here is reported but never fails the transfer.
+    in place, so a failure here is reported but never fails the transfer.
+
+    Emby shares Jellyfin's API for both endpoints and its X-Emby-Token header,
+    so one path serves both. Plex differs enough to need its own client and is
+    not supported — say so rather than failing obscurely.
     """
+    kind = media_server_kind()
+    if kind == "none":
+        return
+    if kind not in {"jellyfin", "emby"}:
+        print(f"[WARN] media_server kind {kind!r} is not supported — skipping scan")
+        return
+
     api_key = os.environ.get("JELLYFIN_API_KEY") or JELLYFIN.get("api_key")
     if not api_key:
-        print("[WARN] JELLYFIN_API_KEY not set — skipping Jellyfin scan")
+        print(f"[WARN] no API key for {kind} — skipping library scan")
         return
 
     jf_path = to_jellyfin_path(host_path)
@@ -205,6 +230,10 @@ def scan_jellyfin(host_path: str) -> None:
             print(f"Jellyfin: full library scan started (HTTP {status})")
         except (urllib.error.URLError, OSError) as exc2:
             print(f"[WARN] Jellyfin scan failed ({exc2}) — transfer itself was fine")
+
+
+# Old name, still used by server/pipeline.py and the skills.
+scan_jellyfin = notify_library
 
 
 def main():
