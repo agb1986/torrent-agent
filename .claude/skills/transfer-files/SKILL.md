@@ -30,17 +30,18 @@ mDNS resolution is intermittently flaky on this box and recovers on its own.
 
 ## Step 1 — Locate what to transfer
 
-Media lives in `~/Downloads`, the same as for **tidy-files**. Resolve what the
+Media lives in Deluge's download directory, the same as for **tidy-files** —
+`/mnt/data/downloads` on the CasaOS server. Resolve what the
 user gave you against it:
 
 - **An explicit path** → use it as-is.
 - **A bare title** (`succession`, `withnail`) → search for it:
 
   ```bash
-  find ~/Downloads -maxdepth 2 -iname "*succession*"
+  find /mnt/data/downloads -maxdepth 2 -iname "*succession*"
   ```
 
-- **Nothing at all** → list `~/Downloads` and ask which item to send.
+- **Nothing at all** → list the download directory and ask which item to send.
 
 A title will often match **two** things: the original release directory
 (`Succession (2018) Season 1-4 S01-S04 (1080p Mixed x265 ...)`) and the tidied

@@ -8,6 +8,14 @@ description: Full pipeline - fetch a torrent, wait for the download to finish, r
 Run the whole media pipeline in one request. Each stage is an existing skill —
 this skill is the orchestration and hand-off rules between them.
 
+> **This is the interactive route.** The same pipeline runs unattended on the
+> server: `server/notifier.py --deliver` watches Deluge and, on completion,
+> removes the torrent, tidies, delivers and tells Jellyfin — with no session
+> open. Use this skill when you want to drive it yourself, when the automated
+> run escalated because it was not sure how to name something, or on a machine
+> where the notifier is not running. Check first whether the download has
+> already been filed; on a server with auto-delivery on, it probably has.
+
 ```
 get-torrents ──▶ poll download-status ──▶ remove from Deluge
                                               │
@@ -70,7 +78,7 @@ cd /home/agb86/workspace/repos/torrent-agent && \
   torrent, including unrelated ones the user is deliberately seeding. The
   pipeline must only clean up after itself.
 - **Data is never deleted** — `remove_data=False` is hardcoded, so the files
-  stay in `~/Downloads` for Stage 4 to tidy. Removing the torrent only drops
+  stay in the download directory for Stage 4 to tidy. Removing the torrent only drops
   Deluge's entry.
 - The first output line is a logging artifact path — skip it when relaying, as
   with the other scripts.
@@ -94,7 +102,8 @@ always be retried from what is on disk.
 
 ## Stage 4 — Tidy (tidy-files)
 
-The finished download is in `~/Downloads`. Follow the **tidy-files** skill to
+The finished download is in Deluge's download directory. Follow the
+**tidy-files** skill to
 repackage it (`Show Name (Year) [tmdbid-N]/Season XX/SXXEYY - Episode.ext` for
 TV, `Film Name (Year) [tmdbid-N].ext` for films — the tmdbid tag is what lets
 Jellyfin match the item instead of guessing from the name).
@@ -127,5 +136,5 @@ what is left for them to do.
 - Only ever remove torrents by the ids this run added — never the bare
   all-seeding sweep.
 - Data is never deleted at any stage; removing a torrent keeps its files, and
-  cleanup of the original release directory in `~/Downloads` is offered at the
+  cleanup of the original release directory is offered at the
   end, not done automatically.

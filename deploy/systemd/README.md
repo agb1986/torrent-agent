@@ -46,6 +46,11 @@ journalctl --user -u torrent-agent-pfsync -f
   or an empty allowlist, and restarting into the same misconfiguration forever
   would bury the reason. `Restart=always` for pfsync, which has no such exit
   and is expected to outlive gluetun restarts.
-- pfsync only makes sense for the **gluetun** stack (it pins
-  `TORRENT_AGENT_CONFIG=config.rehearsal.toml`). A host VPN has no control
-  server to ask.
+- pfsync only makes sense for the **gluetun** stack — a host VPN has no control
+  server to ask. It sets `TORRENT_AGENT_CONFIG` in the unit, so point that at
+  whichever config describes the gluetun stack on this machine: `config.toml`
+  on the server, `config.rehearsal.toml` on a laptop running the rehearsal
+  stack beside a native Deluge.
+- The notifier takes `TORRENT_AGENT_AUTODELIVER=1` (in `.env.bot`) to tidy and
+  file finished downloads rather than only announcing them. Only set it on the
+  machine the media library actually lives on.

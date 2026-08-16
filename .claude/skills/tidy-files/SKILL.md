@@ -33,16 +33,21 @@ Tidying only. To send the result to the CASAOS server afterwards, use the
 
 ## Step 1 — Identify the input
 
-Everything lives in `~/Downloads` — that is where Deluge saves files. Resolve
-what the user gave you against it:
+Deluge's download directory differs per machine, so ask Deluge rather than
+assuming. `scripts/status.py` lists the session, and the path is in the
+`[deluge]` block of the active config — on the CasaOS server it is
+`/mnt/data/downloads`. Where Deluge runs in a container it reports its *own*
+view (`/downloads`); `[deluge.path_map]` translates that to the host path.
+
+Resolve what the user gave you against that directory:
 
 - **An explicit path** → use it as-is.
-- **A bare title** (`succession`, `withnail`) → search `~/Downloads` for it,
-  case-insensitively and on a fragment of the name, since release directories
-  carry a lot of junk around the title:
+- **A bare title** (`succession`, `withnail`) → search the download directory
+  for it, case-insensitively and on a fragment of the name, since release
+  directories carry a lot of junk around the title:
 
   ```bash
-  find ~/Downloads -maxdepth 2 -iname "*succession*"
+  find /mnt/data/downloads -maxdepth 2 -iname "*succession*"
   ```
 
   Put a `*` between words rather than a space — releases are as often
@@ -61,8 +66,8 @@ what the user gave you against it:
     genuinely different. Ask which, and say which is which.
 
   No match at all — say so rather than tidying something unrelated.
-- **Nothing at all** → list `~/Downloads` and ask which item to tidy. Do not
-  tidy the whole folder in one go unless the user asks for exactly that.
+- **Nothing at all** → list the download directory and ask which item to tidy.
+  Do not tidy the whole folder in one go unless the user asks for exactly that.
 
 Then, for whatever you resolved to:
 
