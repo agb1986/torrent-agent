@@ -6,9 +6,11 @@ completion, but only while a session is open and driving it, and Deluge's own
 Execute plugin is disabled. So a torrent finishes, moves itself to
 `complete/`, and sits there with nobody told.
 
-Deliberately notify-only. It reports; it does not tidy, transfer, or delete.
-Automating delivery means writing into a real media library on a guess from
-TMDB matching, which wants watching by hand a few times first.
+Notify-only by default. With --deliver (or TORRENT_AGENT_AUTODELIVER=1) it
+also runs the full pipeline: out of Deluge, tidy, deliver, tell Jellyfin. That
+is opt-in because filing things into a media library is only safe on the
+machine the library lives on, and because a wrong TMDB match is invisible
+until someone tries to watch it — see server/pipeline.py.
 
     python -m server.notifier            # poll forever
     python -m server.notifier --once     # single pass, for testing
@@ -46,12 +48,16 @@ class CompletionNotifier:
         config: dict[str, Any],
         state_path: Path,
         interval: int = POLL_SECONDS,
+        deliver: bool = False,
     ) -> None:
         self.client = client
         self.chat_ids = list(chat_ids)
         self.config = config
         self.state_path = Path(state_path)
         self.interval = interval
+        # Off unless asked. Announcing is safe anywhere; filing things into a
+        # media library is only safe where the library actually is.
+        self.deliver = deliver
 
     # --- state ------------------------------------------------------------
     # Which torrents have already been announced. Persisted so a restart is
@@ -98,17 +104,41 @@ class CompletionNotifier:
         return fresh
 
     def _announce(self, row: dict[str, Any]) -> None:
+        if self.deliver:
+            self._deliver(row)
+            return
+        # Report the real path rather than a hardcoded one: the laptop moves
+        # finished torrents to complete/, the server leaves them in place.
+        where = row.get("save_path") or "the downloads directory"
         text = (
             f"✅ Finished: {row['name']}\n"
-            f"   {fmt_size(row['size'])}  •  now in complete/\n\n"
+            f"   {fmt_size(row['size'])}  •  in {where}\n\n"
             f"Not yet tidied or sent to Jellyfin — that stays manual."
         )
+        self._say(text)
+        log.info("announced %s", row["name"])
+
+    def _deliver(self, row: dict[str, Any]) -> None:
+        """Take a finished torrent through tidy, delivery and Jellyfin."""
+        from .pipeline import format_outcome, run
+
+        self._say(f"✅ Finished: {row['name']}\n   {fmt_size(row['size'])} — filing it now…")
+        try:
+            outcome = run(row, self.config)
+        except Exception as exc:  # never let one bad download stop the watcher
+            log.exception("pipeline blew up")
+            self._say(f"⚠️ {row['name']}: pipeline failed — {exc}\n\nLeft where it is.")
+            return
+        log.info("pipeline %s at %s: %s", "ok" if outcome.ok else "stopped",
+                 outcome.stage, outcome.message)
+        self._say(format_outcome(outcome))
+
+    def _say(self, text: str) -> None:
         for chat_id in self.chat_ids:
             try:
                 self.client.send_message(chat_id, text)
             except TelegramError as exc:
                 log.warning("could not notify %s: %s", chat_id, exc)
-        log.info("announced %s", row["name"])
 
     def run_forever(self) -> None:
         while True:
@@ -130,6 +160,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--once", action="store_true", help="Single pass, then exit.")
     parser.add_argument("--interval", type=int, default=POLL_SECONDS)
+    parser.add_argument(
+        "--deliver",
+        action="store_true",
+        help="Also tidy, deliver and notify Jellyfin (server only).",
+    )
     args = parser.parse_args(argv)
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -149,6 +184,11 @@ def main(argv: list[str] | None = None) -> int:
         config=load_config(os.environ.get("TORRENT_AGENT_CONFIG")),
         state_path=REPO_ROOT / "tmp" / "notified_torrents.json",
         interval=args.interval,
+        # Env as well as flag, so the systemd unit is the same file everywhere
+        # and only the environment differs.
+        deliver=args.deliver
+        or os.environ.get("TORRENT_AGENT_AUTODELIVER", "").lower()
+        in {"1", "true", "yes"},
     )
     if args.once:
         announced = notifier.poll_once()

@@ -185,6 +185,9 @@ TORRENT_FIELDS = [
     # comparison would also fire for a torrent that was already complete when
     # it was added, and for one still checking its existing data.
     "is_finished",
+    # Where the files actually are — the automated pipeline needs the path,
+    # not just the name, and it differs between hosts.
+    "save_path",
 ]
 
 # Active work first, so the interesting rows lead in any view.
@@ -235,6 +238,7 @@ def list_torrents(config: dict[str, Any]) -> list[dict[str, Any]]:
                 "id": _decode(tid),
                 "name": _decode(info.get("name", "<unknown>")),
                 "finished": bool(info.get("is_finished", False)),
+                "save_path": _decode(info.get("save_path", "")),
                 "state": _decode(info.get("state", "?")),
                 "progress": float(info.get("progress", 0.0)),
                 "eta": int(info.get("eta", 0)),
