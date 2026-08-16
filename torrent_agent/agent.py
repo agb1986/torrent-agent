@@ -191,8 +191,13 @@ class TorrentAgent:
             return json.dumps(
                 {"error": f"Unknown result_id '{result_id}'. Search again first."}
             )
-        provider = self.config.get("vpn", {}).get("provider", "pia")
-        status = vpn_status(provider)
+        vpn_cfg = self.config.get("vpn", {})
+        provider = vpn_cfg.get("provider", "pia")
+        # Pass the config, not just the provider: the gluetun path needs the
+        # control-server url and api_key from it. Without them the request is
+        # unauthenticated, comes back 401, and fails closed — so every add on
+        # the containerised stack was refused with the VPN plainly running.
+        status = vpn_status(provider, vpn_cfg)
         if not status.active:
             return json.dumps(
                 {

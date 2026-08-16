@@ -158,3 +158,35 @@ def test_binding_is_structural_only_for_gluetun():
     # and claiming otherwise would silently drop a real safety check.
     assert vpn.binding_is_structural("gluetun") is True
     assert vpn.binding_is_structural("pia") is False
+
+
+def test_add_torrent_passes_config_to_the_vpn_check(monkeypatch):
+    """add_torrent must hand vpn_status the [vpn] block, not just the provider.
+
+    Regression: it called vpn_status(provider) with no config, so the gluetun
+    path had no control_url and no api_key. The request went out
+    unauthenticated, came back 401, and — correctly failing closed — read as
+    "VPN down". Every add on the containerised stack was refused while the
+    tunnel was plainly running, and check_vpn reported it up moments earlier
+    because that path did pass the config.
+    """
+    from torrent_agent import agent as agent_mod
+
+    seen = {}
+
+    def fake_vpn_status(provider, config=None):
+        seen["provider"] = provider
+        seen["config"] = config
+        return vpn.VpnStatus(active=False, ip=None, detail="stubbed")
+
+    monkeypatch.setattr(agent_mod, "vpn_status", fake_vpn_status)
+
+    a = agent_mod.TorrentAgent.__new__(agent_mod.TorrentAgent)
+    a.config = {"vpn": dict(CFG, provider="gluetun")}
+    a._results = {"s1r1": object()}
+
+    a._tool_add_torrent("s1r1")
+
+    assert seen["provider"] == "gluetun"
+    assert seen["config"] is not None, "config was not passed to vpn_status"
+    assert seen["config"].get("api_key") == "testkey"
