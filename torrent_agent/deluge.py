@@ -166,3 +166,77 @@ def add_torrent(result_link: str, config: dict[str, Any]) -> str:
             "Deluge returned no torrent id — it may already be in the session."
         )
     return tid.decode() if isinstance(tid, bytes) else str(tid)
+
+
+# --- listing ------------------------------------------------------------- #
+# What both `scripts/status.py` and the Telegram bot's /status need. Kept here
+# rather than in either caller so the two cannot drift into disagreeing about
+# what "progress" means.
+TORRENT_FIELDS = [
+    "name",
+    "state",
+    "progress",
+    "eta",
+    "download_payload_rate",
+    "total_wanted",
+    "num_seeds",
+    "total_peers",
+]
+
+# Active work first, so the interesting rows lead in any view.
+_STATE_ORDER = {"Downloading": 0, "Checking": 1, "Queued": 2, "Seeding": 3, "Paused": 4}
+
+
+def fmt_size(n: float) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if n < 1024 or unit == "TiB":
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TiB"
+
+
+def fmt_eta(seconds: int) -> str:
+    if seconds <= 0:
+        return "-"
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h{m:02d}m"
+    if m:
+        return f"{m}m{s:02d}s"
+    return f"{s}s"
+
+
+def _decode(value: Any) -> Any:
+    return value.decode() if isinstance(value, bytes) else value
+
+
+def list_torrents(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every torrent in the session, sorted with active downloads first.
+
+    Deluge's RPC hands back bytes for both keys and values, hence the decoding
+    on the way out — callers should never have to think about it.
+    """
+    with connect(config) as client:
+        try:
+            torrents: dict = client.call("core.get_torrents_status", {}, TORRENT_FIELDS)
+        except Exception as exc:
+            raise DelugeError(f"Failed to list torrents: {exc}") from exc
+
+    rows = []
+    for info in (torrents or {}).values():
+        info = {_decode(k): v for k, v in info.items()}
+        rows.append(
+            {
+                "name": _decode(info.get("name", "<unknown>")),
+                "state": _decode(info.get("state", "?")),
+                "progress": float(info.get("progress", 0.0)),
+                "eta": int(info.get("eta", 0)),
+                "rate": float(info.get("download_payload_rate", 0)),
+                "size": float(info.get("total_wanted", 0)),
+                "seeds": int(info.get("num_seeds", 0)),
+                "peers": int(info.get("total_peers", 0)),
+            }
+        )
+    rows.sort(key=lambda r: (_STATE_ORDER.get(r["state"], 9), r["name"].lower()))
+    return rows

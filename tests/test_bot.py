@@ -291,3 +291,65 @@ def test_status_reports_idle_and_remaining_budget(tmp_path):
     bot.handle_update(message(42, "/status"))
     text = client.texts_for(42)[-1]
     assert "Idle." in text and "Requests left today: 7" in text
+
+
+# --- reply formatting -----------------------------------------------------
+
+
+def test_status_lists_torrents_with_progress():
+    from server.bot import _format_torrents
+
+    out = _format_torrents(
+        [
+            {"name": "Toast S01", "state": "Downloading", "progress": 21.7,
+             "eta": 873, "rate": 5138022.0, "size": 5798205849.0,
+             "seeds": 32, "peers": 40},
+            {"name": "debian.iso", "state": "Seeding", "progress": 100.0,
+             "eta": 0, "rate": 0.0, "size": 791674880.0, "seeds": 0, "peers": 2},
+        ]
+    )
+    assert "2 torrent(s), 1 downloading" in out
+    assert "21.7%" in out and "Toast S01" in out
+    assert "32 seeds" in out
+    # ETA and rate only make sense for something actually downloading.
+    assert "ETA 14m33s" in out
+    assert out.count("ETA") == 1
+
+
+def test_status_handles_an_empty_session():
+    from server.bot import _format_torrents
+
+    assert _format_torrents([]) == "Deluge is empty."
+
+
+def test_status_truncates_a_long_list():
+    from server.bot import MAX_LISTED, _format_torrents
+
+    rows = [
+        {"name": f"t{i}", "state": "Seeding", "progress": 100.0, "eta": 0,
+         "rate": 0.0, "size": 1.0, "seeds": 1, "peers": 1}
+        for i in range(MAX_LISTED + 4)
+    ]
+    out = _format_torrents(rows)
+    assert "and 4 more" in out
+    # Telegram hard-rejects over 4096 characters; a long session must not
+    # turn a status reply into a silent delivery failure.
+    assert len(out) < 4000
+
+
+def test_added_confirmation_reports_size_and_seeds():
+    from server.bot import _format_added
+
+    out = _format_added(
+        [{"title": "Toast of London S01", "size_gb": 5.38, "seeders": 32,
+          "resolution": "1080p"}]
+    )
+    assert "Added to Deluge (1)" in out
+    assert "5.38 GB" in out and "32 seeds" in out and "1080p" in out
+
+
+def test_added_confirmation_is_empty_when_nothing_was_added():
+    # A run that adds nothing must not append a misleading empty header.
+    from server.bot import _format_added
+
+    assert _format_added([]) == ""

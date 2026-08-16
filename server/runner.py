@@ -106,6 +106,18 @@ class AgentRunner:
         self._proc: subprocess.Popen[str] | None = None
         self._proc_lock = threading.Lock()
 
+    def torrents(self) -> list[dict[str, Any]]:
+        """What Deluge is currently doing. Raises DelugeError if it can't say.
+
+        Read straight from Deluge rather than tracked in the bot: the bot is
+        not the only thing that adds torrents, and a view that only knew about
+        its own additions would quietly lie.
+        """
+        from torrent_agent.config import load_config
+        from torrent_agent.deluge import list_torrents
+
+        return list_torrents(load_config(self.config_path))
+
     def _command(self, request: str) -> list[str]:
         cmd = [str(self.repo_root / ".venv" / "bin" / "python"), "-m", "torrent_agent"]
         if self.config_path:

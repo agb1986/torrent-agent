@@ -46,6 +46,61 @@ class Job:
     request: str
 
 
+# Telegram renders in a proportional font, so column alignment is wasted
+# effort — two short lines per torrent read better on a phone than a table
+# that wraps.
+MAX_LISTED = 15
+
+
+def _format_torrents(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "Deluge is empty."
+
+    from torrent_agent.deluge import fmt_eta, fmt_size
+
+    active = sum(1 for r in rows if r["state"] == "Downloading")
+    head = f"Deluge — {len(rows)} torrent(s), {active} downloading"
+
+    out = [head, ""]
+    for r in rows[:MAX_LISTED]:
+        marker = "⬇" if r["state"] == "Downloading" else "•"
+        out.append(f"{marker} {r['name'][:60]}")
+        bits = [f"{r['progress']:.1f}%", r["state"]]
+        if r["state"] == "Downloading":
+            bits.append(f"{fmt_size(r['rate'])}/s")
+            bits.append(f"ETA {fmt_eta(r['eta'])}")
+        bits.append(fmt_size(r["size"]))
+        bits.append(f"{r['seeds']} seeds")
+        out.append("   " + "  ".join(bits))
+    if len(rows) > MAX_LISTED:
+        out.append(f"\n…and {len(rows) - MAX_LISTED} more.")
+    return "\n".join(out)
+
+
+def _format_added(added: list[dict[str, Any]]) -> str:
+    """Confirmation built from the run's artifact, not the model's prose.
+
+    The summary is model-authored and will drift; these fields come from what
+    add_torrent actually recorded, so "added" here means it reached Deluge.
+    """
+    if not added:
+        return ""
+    out = [f"\nAdded to Deluge ({len(added)}):"]
+    for a in added:
+        title = str(a.get("title", "?"))[:60]
+        bits = []
+        if a.get("size_gb"):
+            bits.append(f"{a['size_gb']} GB")
+        if a.get("seeders") is not None:
+            bits.append(f"{a['seeders']} seeds")
+        if a.get("resolution"):
+            bits.append(str(a["resolution"]))
+        out.append(f"• {title}")
+        if bits:
+            out.append("   " + "  ".join(bits))
+    return "\n".join(out)
+
+
 class Bot:
     def __init__(
         self,
@@ -155,6 +210,17 @@ class Bot:
         if pending:
             lines.append(f"Queued: {pending}")
         lines.append(f"Requests left today: {self.runner.cap.remaining()}")
+
+        # What Deluge is actually doing matters more than what the bot is, and
+        # is the question people mean when they ask. Failure here must not take
+        # the whole reply down — the bot's own state is still worth reporting.
+        try:
+            rows = self.runner.torrents()
+        except Exception as exc:
+            lines.append(f"\nCould not reach Deluge: {exc}")
+        else:
+            lines.append("")
+            lines.append(_format_torrents(rows))
         self.say(chat_id, "\n".join(lines))
 
     def cmd_cancel(self, chat_id: int, who: str) -> None:
@@ -191,7 +257,7 @@ class Bot:
                 torrent_ids=result.torrent_ids,
                 artifact=result.artifact,
             )
-            self.say(job.chat_id, result.summary)
+            self.say(job.chat_id, result.summary + _format_added(result.added))
         except Exception as exc:  # never let one bad run kill the worker
             log.exception("run blew up")
             self.record("error", chat_id=job.chat_id, user=job.user,
