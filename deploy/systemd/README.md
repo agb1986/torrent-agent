@@ -30,6 +30,16 @@ To survive logout and start at boot without logging in (needs root once):
 sudo loginctl enable-linger "$USER"
 ```
 
+## Update
+
+```bash
+./deploy/update.sh          # pull, test, restart every service
+```
+
+Restarts all four rather than the ones that look changed: Python holds the old
+module in memory after a pull, and a fix that is deployed but not running looks
+exactly like a fix that did not work.
+
 ## Watch them
 
 ```bash

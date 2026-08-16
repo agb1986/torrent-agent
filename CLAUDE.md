@@ -46,6 +46,45 @@ context window.
   Proton's NAT-PMP lease rotates, so run `--watch` alongside the stack;
   `--check` reports and exits 1 on mismatch.
 
+## The unattended layer (`server/`)
+
+Four systemd **user** units run on the CasaOS server — not the laptop, which
+was the rehearsal and is now torn down (data kept, see `~/srv-rehearsal`).
+Units live in `deploy/systemd/`, and their paths assume
+`~/workspace/repos/torrent-agent`; the server checkout is at
+`~/workspace/torrent-agent`, so installs `sed` the path.
+
+| Unit | Does |
+|---|---|
+| `bot` | Telegram: `/get`, `/status`, `/cancel`, `/sub` |
+| `notifier` | Watches Deluge; announces completions, and with `TORRENT_AGENT_AUTODELIVER=1` runs the whole delivery pipeline |
+| `sub` | Reconciles followed series — fetches episodes as they air |
+| `pfsync` | Keeps Deluge's listen port on gluetun's rotating forwarded port |
+
+- **After `git pull` on the server, restart *all four*.** Python holds the old
+  module in memory, and this has bitten twice: a fix deployed but not running
+  looks exactly like a fix that did not work.
+- **`server/pipeline.py` refuses rather than guesses.** `torrent_agent/tidy.py`
+  builds a plan and is confident only with one show name across all files, a
+  TVmaze episode for each, and an unambiguous TMDB id. Short of that nothing
+  moves and the user is told why — a confident wrong answer files a show under
+  the wrong programme and is invisible until someone watches it. Do not "fix"
+  an escalation by loosening the checks.
+- **`/sub` reconciles, it does not schedule.** No cron: the watcher asks "which
+  episodes have aired and are missing?" each tick, so a missed tick costs a
+  delay rather than a season. IMDb links only — an ambiguous subscription
+  fetches the wrong programme for weeks.
+- **The bot's Telegram traffic goes through gluetun's HTTP proxy**
+  (`127.0.0.1:8888`, `HTTPS_PROXY` in `.env.bot`). The ISP blocks
+  `api.telegram.org`; the laptop never noticed because its traffic already went
+  via ProtonVPN. `NO_PROXY=127.0.0.1,localhost` is load-bearing — `vpn.py` uses
+  urllib, which honours those vars and would otherwise proxy its own control
+  server call.
+- **Never put a real credential in a test fixture.** A test written to prove
+  the bot token is never leaked used the live token, and publishing it to a
+  public repo tripped GitHub secret scanning. Fixtures look like credentials
+  without being them.
+
 ## Search stack
 
 Prowlarr (preferred) → apibay/TPB fallback, set in `config.toml`
