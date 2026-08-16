@@ -44,6 +44,45 @@ def test_tunnel_device_falls_back_when_ip_command_missing(monkeypatch):
     assert vpn.tunnel_device() == "tun0"
 
 
+def test_tunnel_device_detects_protonvpn(monkeypatch):
+    # ProtonVPN names the device proton0, which matched no prefix before the
+    # migration — tunnel_device() returned None and bind_vpn.py refused to run.
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _route("proton0"))
+    assert vpn.tunnel_device() == "proton0"
+
+
+def test_status_uses_live_tunnel_when_pia_is_installed_but_idle(monkeypatch):
+    # The migration state: PIA still installed, Proton actually carrying
+    # traffic. piactl saying "Disconnected" means PIA is down, not that the
+    # machine is unprotected, so this must not report inactive.
+    monkeypatch.setattr(vpn, "_piactl_path", lambda: "/opt/piavpn/bin/piactl")
+    monkeypatch.setattr(vpn, "_piactl_get", lambda exe, field: "Disconnected")
+    monkeypatch.setattr(vpn, "tunnel_device", lambda: "proton0")
+
+    status = vpn.vpn_status("pia")
+    assert status.active is True
+    assert "proton0" in status.detail
+
+
+def test_status_inactive_when_pia_idle_and_no_tunnel(monkeypatch):
+    # Same path, nothing carrying traffic: must still fail closed.
+    monkeypatch.setattr(vpn, "_piactl_path", lambda: "/opt/piavpn/bin/piactl")
+    monkeypatch.setattr(vpn, "_piactl_get", lambda exe, field: "Disconnected")
+    monkeypatch.setattr(vpn, "tunnel_device", lambda: None)
+
+    assert vpn.vpn_status("pia").active is False
+
+
+def test_status_ignores_stale_interface_without_a_route(monkeypatch):
+    # The hardening: a leftover tun0 in /sys/class/net with the route out over
+    # the LAN used to read as "VPN up". It must not.
+    monkeypatch.setattr(vpn, "_piactl_path", lambda: None)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _route("wlp1s0"))
+    monkeypatch.setattr(vpn, "_tunnel_interfaces", lambda: ["tun0"])
+
+    assert vpn.vpn_status("pia").active is False
+
+
 def _write_core_conf(path, listen="", outgoing=""):
     header = {"file": 1, "format": 1}
     body = {

@@ -1,0 +1,26 @@
+[Unit]
+Description=torrent-agent Telegram control bot
+Documentation=https://github.com/agb1986/torrent-agent
+# Long polling only makes sense once there is a route out.
+After=network-online.target
+Wants=network-online.target
+# A crash loop against the Telegram API is worth stopping rather than hiding.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/workspace/repos/torrent-agent
+# Holds TELEGRAM_BOT_TOKEN, the allowlist, and ANTHROPIC_API_KEY. systemd
+# cannot source ~/.bashrc, so the key has to live in this file rather than
+# behind the interactive-shell guard the CLI relies on.
+EnvironmentFile=%h/workspace/repos/torrent-agent/.env.bot
+ExecStart=%h/workspace/repos/torrent-agent/.venv/bin/python -u -m server.bot
+# on-failure, not always: the bot exits 1 deliberately on a missing token or an
+# empty allowlist, and restarting into the same misconfiguration forever would
+# just bury the reason in the journal.
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
