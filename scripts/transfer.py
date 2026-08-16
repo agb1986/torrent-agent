@@ -159,6 +159,14 @@ def to_jellyfin_path(host_path: str) -> str | None:
     return best[1] + host_path[len(best[0]):]
 
 
+# Never through a proxy. The bot routes Telegram via gluetun's HTTP proxy, and
+# urllib honours HTTP_PROXY for every request in the process — so the library
+# scan was being sent out through the VPN and back at a LAN address, which
+# fails in a way nothing reports. NO_PROXY can express this, but only if
+# whoever wrote it thought of every hostname; this cannot be forgotten.
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _jellyfin_post(path: str, api_key: str, body: dict | None = None) -> int:
     data = json.dumps(body).encode() if body is not None else b""
     req = urllib.request.Request(
@@ -170,7 +178,7 @@ def _jellyfin_post(path: str, api_key: str, body: dict | None = None) -> int:
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as response:
+    with _DIRECT.open(req, timeout=30) as response:
         return response.status
 
 

@@ -160,3 +160,24 @@ def test_emby_uses_the_jellyfin_path(monkeypatch):
 
     transfer.notify_library("/srv/media/tv/Show")
     assert posted["path"] == "/Library/Media/Updated"
+
+
+def test_the_library_scan_ignores_a_configured_proxy(monkeypatch):
+    """The media server is on the LAN; a proxy would send the call via the VPN.
+
+    The bot sets HTTP_PROXY so Telegram can reach an ISP-blocked API, and
+    urllib honours it for every request in the process. That silently broke
+    every library scan — the delivery succeeded, the scan went out through the
+    tunnel to a LAN address, and nothing said so. NO_PROXY can express this,
+    but only if whoever writes it thinks of every hostname.
+
+    The mechanism is subtle: ProxyHandler({}) defines no *_open methods, so
+    build_opener registers nothing for it at all. An opener with no
+    ProxyHandler cannot proxy, whatever the environment says.
+    """
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:8888")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:8888")
+
+    names = [h.__class__.__name__ for h in transfer._DIRECT.handlers]
+    assert not any("Proxy" in n for n in names), f"opener can proxy: {names}"
+    assert "HTTPHandler" in names, "opener should still speak http"
