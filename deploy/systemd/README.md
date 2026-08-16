@@ -15,14 +15,14 @@ account that owns `~/.config/deluge` and the virtualenv.
 ## Install
 
 ```bash
-cp deploy/systemd/*.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now torrent-agent-bot torrent-agent-pfsync \
-  torrent-agent-notifier torrent-agent-sub
+./deploy/install-units.sh
+systemctl --user enable --now torrent-agent-bot torrent-agent-notifier \
+  torrent-agent-pfsync torrent-agent-sub
 ```
 
-All three use `%h/workspace/repos/torrent-agent` — edit `WorkingDirectory` and
-`ExecStart` if the checkout lives elsewhere.
+The units are templates carrying `__REPO__`; `install-units.sh` substitutes
+the checkout it is run from, so they work wherever the repo lives and cannot
+drift apart. Re-run it after moving the checkout.
 
 To survive logout and start at boot without logging in (needs root once):
 

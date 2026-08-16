@@ -9,11 +9,11 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-WorkingDirectory=%h/workspace/torrent-agent
+WorkingDirectory=__REPO__
 # Shares the bot's file: same token, same allowlist, same daily budget. One
 # ceiling on spend rather than two that can each be under their own limit.
-EnvironmentFile=%h/workspace/torrent-agent/.env.bot
-ExecStart=%h/workspace/torrent-agent/.venv/bin/python -u -m server.sub
+EnvironmentFile=__REPO__/.env.bot
+ExecStart=__REPO__/.venv/bin/python -u -m server.sub
 # always, like the notifier: it should outlive TVmaze outages and Deluge
 # restarts. A failed tick is logged and the next one reconciles anyway, since
 # it asks what is missing rather than what is due.
