@@ -33,6 +33,9 @@ services:
       - "8112:8112"      # Deluge web UI     — shared namespace
       - "58846:58846"    # Deluge daemon RPC — shared namespace
       - "8000:8000"      # gluetun control server
+      # Loopback only: an open HTTP proxy on the LAN would relay anyone's
+      # traffic out through your VPN account.
+      - "127.0.0.1:8888:8888"  # HTTP proxy out through the tunnel
     volumes:
       # Holds servers.json, the OpenVPN state, and auth/config.toml.
       # Create the auth file with deploy/casaos/init-gluetun-auth.sh.
@@ -43,7 +46,10 @@ services:
       # WireGuard configuration, and is NOT the desktop app's key: give the
       # container its own, so revoking one does not take down the other. Tick
       # NAT-PMP (Port Forwarding) when generating it — without that the tunnel
-      # comes up fine and port forwarding fails silently, logging nothing.
+      # comes up fine and port forwarding fails. It does say so, clearly:
+      #   ERROR [vpn] starting port forwarding service: ... connection refused
+      #   - make sure ... your Wireguard key is set to work with PMP
+      # so check `docker logs gluetun` before assuming anything subtler.
       - ../../.env.gluetun
     environment:
       VPN_SERVICE_PROVIDER: protonvpn
@@ -64,6 +70,18 @@ services:
       # then reach nothing: gluetun's firewall drops them before Deluge sees
       # them. First thing to check if the web UI looks dead.
       FIREWALL_INPUT_PORTS: 8112,58846
+      # An HTTP proxy out through the tunnel, for host processes that need a
+      # route the bare connection does not give them. The bot needs exactly
+      # this: the ISP blocks api.telegram.org, so the laptop only ever worked
+      # because all its traffic already went via ProtonVPN. Published on
+      # 127.0.0.1 below — an HTTP proxy reachable from the LAN is an open
+      # relay through your VPN.
+      #
+      # Preferred over putting the bot in this container's namespace: there it
+      # would die with every gluetun restart, whereas via the proxy its poll
+      # loop just backs off and recovers on its own.
+      HTTPPROXY: "on"
+      HTTPPROXY_LISTENING_ADDRESS: ":8888"
       TZ: Europe/Dublin
 
   deluge:
