@@ -136,6 +136,10 @@ def binding_is_structural(provider: str) -> bool:
 
 def _gluetun_get(base_url: str, path: str, api_key: str) -> Any | None:
     """GET a control-server route, returning parsed JSON or None on any failure."""
+    # If this process has HTTP_PROXY set (the bot routes Telegram through
+    # gluetun's proxy), NO_PROXY must cover 127.0.0.1 or this asks the proxy
+    # to reach the proxy's own host. That fails closed — the VPN reads as
+    # down and adds are refused — so it is noisy rather than silent.
     req = urllib.request.Request(base_url.rstrip("/") + path)
     if api_key:
         req.add_header("X-API-Key", api_key)
