@@ -14,7 +14,7 @@ import anthropic
 
 from . import deluge, ranking, search
 from .config import anthropic_api_key
-from .vpn import tunnel_device, vpn_status
+from .vpn import binding_is_structural, tunnel_device, vpn_status
 
 _MAX_TURNS = 16
 # Cap on results shown to the model. Kept generous so a "grab every episode"
@@ -147,8 +147,24 @@ class TorrentAgent:
         return json.dumps({"results": out})
 
     def _tool_check_vpn(self) -> str:
-        provider = self.config.get("vpn", {}).get("provider", "pia")
-        out = vpn_status(provider).as_dict()
+        vpn_cfg = self.config.get("vpn", {})
+        provider = vpn_cfg.get("provider", "pia")
+        out = vpn_status(provider, vpn_cfg).as_dict()
+
+        # Under gluetun the containment is the runtime's, not Deluge's: Deluge
+        # shares the tunnel container's network namespace and has no second
+        # route out. There is no listen_interface to inspect, and inspecting
+        # one would read the *host's* core.conf — a different daemon entirely.
+        if binding_is_structural(provider):
+            out["tunnel_device"] = None
+            out["deluge_bound_to_vpn"] = True
+            out["binding_note"] = (
+                "Deluge shares the VPN container's network namespace, so it "
+                "cannot reach the network except through the tunnel. No "
+                "interface binding is involved."
+            )
+            return json.dumps(out)
+
         # Whether Deluge is actually pinned to the tunnel, not just whether the
         # tunnel is up — an unbound Deluge keeps downloading over the LAN if
         # the VPN drops mid-transfer.

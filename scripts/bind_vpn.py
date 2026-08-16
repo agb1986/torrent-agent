@@ -93,7 +93,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    config = load_config(_REPO_ROOT / "config.toml")
+    config = load_config()
     device = args.interface or tunnel_device()
     bound = deluge_binding(config)
 

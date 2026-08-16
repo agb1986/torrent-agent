@@ -18,8 +18,20 @@ DEFAULTS: dict[str, Any] = {
         "port": 58846,
         "username": "",
         "password": "",
+        # Empty means the native daemon's ~/.config/deluge/auth. Point this at
+        # a containerised daemon's own auth file rather than letting it fall
+        # back — the host's file would be read instead, and the only symptom
+        # is an unexplained "Bad login".
+        "auth_file": "",
     },
-    "vpn": {"provider": "pia"},
+    # provider "pia" uses piactl on this machine; "gluetun" queries the VPN
+    # container's control server, which is the only option on a host where the
+    # tunnel lives in a namespace rather than on the box.
+    "vpn": {
+        "provider": "pia",
+        "control_url": "http://127.0.0.1:8000",
+        "api_key": "",
+    },
     "preferences": {
         "resolutions": ["1080p", "2160p", "720p"],
         "prefer_codecs": ["x265", "hevc", "h265"],
@@ -74,7 +86,10 @@ def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         "search": {"prowlarr": {}},
         "jellyfin": {},
         "tmdb": {},
+        "vpn": {},
     }
+    if key := os.environ.get("GLUETUN_API_KEY"):
+        override["vpn"]["api_key"] = key
     if key := os.environ.get("PROWLARR_API_KEY"):
         override["search"]["prowlarr"]["api_key"] = key
     if url := os.environ.get("PROWLARR_URL"):
@@ -94,10 +109,28 @@ def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     return config
 
 
-def load_config(path: str | os.PathLike[str] = "config.toml") -> dict[str, Any]:
-    """Load config: defaults <- config.toml <- environment."""
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def default_config_path() -> Path:
+    """Which config file to load when the caller doesn't name one.
+
+    Honours ``TORRENT_AGENT_CONFIG`` so a second stack (the containerised
+    rehearsal, or the server) can be driven by the same scripts without
+    swapping config.toml in and out. A relative value resolves against the
+    repo root, not the cwd — the scripts are run from anywhere.
+    """
+    env = os.environ.get("TORRENT_AGENT_CONFIG")
+    if not env:
+        return _REPO_ROOT / "config.toml"
+    p = Path(env).expanduser()
+    return p if p.is_absolute() else _REPO_ROOT / p
+
+
+def load_config(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
+    """Load config: defaults <- config file <- environment."""
     config = DEFAULTS
-    p = Path(path)
+    p = Path(path) if path is not None else default_config_path()
     if p.is_file():
         with p.open("rb") as fh:
             config = _deep_merge(config, tomllib.load(fh))

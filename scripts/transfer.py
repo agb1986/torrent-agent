@@ -22,7 +22,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 from torrent_agent.config import load_config
 
-CONFIG = load_config(_REPO_ROOT / "config.toml")
+CONFIG = load_config()
 SERVER = CONFIG["server"]
 JELLYFIN = CONFIG["jellyfin"]
 DESTINATIONS = SERVER["destinations"]

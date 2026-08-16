@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    config = load_config(_REPO_ROOT / "config.toml")
+    config = load_config()
     noun = "torrent(s)" if args.ids else "seeding torrent(s)"
 
     with deluge.connect(config) as client:

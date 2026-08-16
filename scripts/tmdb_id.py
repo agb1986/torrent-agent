@@ -117,7 +117,7 @@ def _year_of(date: str | None) -> int | None:
 # --------------------------------------------------------------------------- #
 
 def _tmdb_key(config: dict | None = None) -> str:
-    config = config if config is not None else load_config(_REPO_ROOT / "config.toml")
+    config = config if config is not None else load_config()
     return config.get("tmdb", {}).get("api_key", "")
 
 

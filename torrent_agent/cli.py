@@ -46,8 +46,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "-c",
         "--config",
-        default="config.toml",
-        help="Path to config file (default: config.toml).",
+        default=None,
+        help=(
+            "Path to config file. Defaults to $TORRENT_AGENT_CONFIG, "
+            "else config.toml."
+        ),
     )
     args = parser.parse_args(argv)
 

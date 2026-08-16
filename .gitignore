@@ -220,9 +220,18 @@ __marimo__/
 # Claude input/output
 prompt.md
 output.md
+local-validation.md
 
-# torrent-agent local config (may contain secrets)
+# torrent-agent local config (may contain secrets).
+# config.*.toml covers the rehearsal/server variants; the template stays tracked.
 config.toml
+config.*.toml
+!config.example.toml
+
+# Per-stack secrets (gluetun OpenVPN creds, bot tokens). `.env` alone missed these.
+# One real file per stack, each with its own tracked *.example template.
+.env.*
+!.env.*.example
 
 # ai-data-store artifact logging (local scratch, not shared)
 /tmp/

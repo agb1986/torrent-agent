@@ -1,0 +1,84 @@
+# VPN + Deluge, with Deluge locked inside the tunnel's network namespace.
+#
+# Server:
+#   docker compose -f deploy/casaos/docker-compose.yml up -d
+#
+# Laptop rehearsal (alternate ports + paths, so it runs beside the existing stack):
+#   docker compose -f deploy/casaos/docker-compose.yml \
+#                  -f deploy/casaos/docker-compose.local.yml up -d
+#
+# The load-bearing line is deluge's `network_mode: service:gluetun`. Deluge gets
+# no network interface except the tunnel, so stopping gluetun kills transfers
+# instead of silently rerouting them over the LAN — the failure mode that made
+# interface-binding necessary on the laptop. A side effect: Deluge cannot
+# publish its own ports, so they are declared on the gluetun service.
+#
+# Prowlarr and FlareSolverr are deliberately NOT here. They must stay off the
+# VPN or indexer access and CloudFlare solving get strange.
+
+name: torrent-agent-vpn
+
+services:
+  gluetun:
+    # Pinned to the digest verified in L0 (amd64, built 2026-08-07). Laptop and
+    # casaos are both x86_64, so this is byte-identical in both places.
+    image: qmcgaw/gluetun@sha256:e3272b29a4bc177b389fbdcb54cf9716ccbfc30f04d8b7a35b0a5be9cdb58461
+    container_name: gluetun
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "8112:8112"      # Deluge web UI     — shared namespace
+      - "58846:58846"    # Deluge daemon RPC — shared namespace
+      - "8000:8000"      # gluetun control server
+    volumes:
+      # Holds servers.json, the OpenVPN state, and auth/config.toml.
+      # Create the auth file with deploy/casaos/init-gluetun-auth.sh.
+      - /mnt/data/AppData/gluetun:/gluetun
+    env_file:
+      # OPENVPN_USER / OPENVPN_PASSWORD / GLUETUN_API_KEY. Never inline these.
+      - ../../.env.gluetun
+    environment:
+      VPN_SERVICE_PROVIDER: private internet access
+      # PIA has no native WireGuard support in gluetun — OpenVPN is the only
+      # option, and costs some throughput. Do not "upgrade" this to wireguard.
+      VPN_TYPE: openvpn
+      # Exact string from the image's own server list; verified to support
+      # port forwarding. Mirrors the region the laptop uses today.
+      SERVER_REGIONS: Ireland
+      VPN_PORT_FORWARDING: "on"
+      # Without this, the published ports above accept a TCP connection and
+      # then reach nothing: gluetun's firewall drops them before Deluge sees
+      # them. First thing to check if the web UI looks dead.
+      FIREWALL_INPUT_PORTS: 8112,58846
+      TZ: Europe/Dublin
+
+  deluge:
+    image: lscr.io/linuxserver/deluge:latest
+    container_name: deluge
+    restart: unless-stopped
+    # THE kill switch. Everything else in this file is arrangement.
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        # gluetun ships its own healthcheck, so this waits for a live tunnel
+        # rather than merely a started container.
+        condition: service_healthy
+        # Load-bearing, and not obvious. Stopping gluetun destroys the network
+        # namespace Deluge lives in; restarting gluetun creates a NEW one, and
+        # Deluge stays attached to the dead one — left running with only
+        # loopback, forever, until it is restarted too. Verified in L1.
+        # This makes Compose restart Deluge whenever it restarts gluetun.
+        # It does NOT cover gluetun crashing on its own — see the runbook note
+        # in local-validation.md.
+        restart: true
+    environment:
+      # Matches the uid/gid that owns the data directories.
+      PUID: 1000
+      PGID: 1000
+      TZ: Europe/Dublin
+    volumes:
+      - /mnt/data/AppData/deluge:/config
+      - /mnt/data/downloads:/downloads
