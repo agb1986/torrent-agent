@@ -5,10 +5,11 @@ need root, so they are not part of any script here.
 
 ## `resolved-mdns.conf` — keep `.local` working under ProtonVPN
 
-**Symptom:** `scripts/transfer.py` and the media-server scan stop working.
 Only relevant if you reach your server by an mDNS `.local` name.
-a `.local` hostname stops resolving. The server is fine, reachable by IP, and
-nothing logs a reason.
+
+**Symptom:** `scripts/transfer.py` and the media-server scan stop working,
+because the `.local` hostname stops resolving. The server is fine, reachable
+by IP, and nothing logs a reason.
 
 **Cause:** ProtonVPN takes DNS over completely. The LAN link is left with *no*
 resolver of its own, so every query goes to systemd-resolved, which — with
