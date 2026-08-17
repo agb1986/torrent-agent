@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily torrent-agent health check
+Documentation=https://github.com/agb1986/torrent-agent
+
+[Timer]
+# Morning, so a fault found overnight is read at a time anything can be done
+# about it.
+OnCalendar=*-*-* 08:00:00
+# The box is not always awake at 08:00. Persistent makes systemd run a missed
+# occurrence at the next boot instead of skipping the day — a monitor that
+# only works on machines with perfect uptime is monitoring the wrong thing.
+Persistent=true
+AccuracySec=1m
+
+[Install]
+WantedBy=timers.target

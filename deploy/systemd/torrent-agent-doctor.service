@@ -1,0 +1,23 @@
+[Unit]
+Description=Run the torrent-agent doctor and alert on Telegram when it changes
+Documentation=https://github.com/agb1986/torrent-agent
+# Checks reach Deluge, gluetun, Prowlarr and the media server, so there is no
+# point running before the network and containers exist.
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__REPO__
+# The token and allowlist to alert through, plus ANTHROPIC_API_KEY, which is
+# itself one of the things being checked.
+EnvironmentFile=__REPO__/.env.bot
+ExecStart=__REPO__/.venv/bin/python -u __REPO__/scripts/doctor_alert.py
+# No Restart=: a failing check is the normal, expected non-zero exit, and
+# retrying it would send nothing new while filling the journal. The timer is
+# the retry.
+
+# No [Install] section on purpose: this unit is started by its .timer, so it
+# is the timer that gets enabled. `systemctl --user enable` on this would fail
+# with "no installation config", which reads like a broken unit rather than a
+# deliberate one.

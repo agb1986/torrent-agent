@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily disk reclaim check
+Documentation=https://github.com/agb1986/torrent-agent
+
+[Timer]
+# After the doctor, so a morning's messages arrive in a sensible order, and
+# well clear of the hours anything is likely to be watching.
+OnCalendar=*-*-* 08:30:00
+Persistent=true
+AccuracySec=5m
+
+[Install]
+WantedBy=timers.target

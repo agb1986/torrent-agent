@@ -1,0 +1,12 @@
+[Unit]
+Description=Snapshot torrent-agent and Deluge state
+Documentation=https://github.com/agb1986/torrent-agent
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__REPO__
+EnvironmentFile=__REPO__/.env.bot
+ExecStart=__REPO__/.venv/bin/python -u __REPO__/scripts/backup.py
+
+# No [Install] section: started by its .timer. See the doctor unit.

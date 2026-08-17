@@ -9,11 +9,16 @@
 # as the home directory. Hardcoding a path instead meant the four units
 # disagreed about where the repo lived, and the copies actually running were
 # hand-edited — which drifts the moment anything changes.
+#
+# Two kinds live here. The long-running services (bot, notifier, pfsync, sub)
+# are enabled directly. The periodic ones (doctor, prune, backup) are a
+# oneshot .service plus a .timer, and it is the *timer* that gets enabled —
+# enabling the service would try to run it once at boot and never again.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
-ALL=(bot notifier pfsync sub)
+ALL=(bot notifier pfsync sub doctor prune backup)
 
 wanted=("$@")
 [ ${#wanted[@]} -eq 0 ] && wanted=("${ALL[@]}")
@@ -32,8 +37,17 @@ for name in "${wanted[@]}"; do
     continue
   fi
   sed "s|__REPO__|$REPO|g" "$src" > "$UNIT_DIR/torrent-agent-$name.service"
-  installed+=("torrent-agent-$name")
-  echo "  installed torrent-agent-$name  ->  $REPO"
+
+  timer="$REPO/deploy/systemd/torrent-agent-$name.timer"
+  if [ -f "$timer" ]; then
+    sed "s|__REPO__|$REPO|g" "$timer" > "$UNIT_DIR/torrent-agent-$name.timer"
+    # The timer, not the service: see the header.
+    installed+=("torrent-agent-$name.timer")
+    echo "  installed torrent-agent-$name (+ .timer)  ->  $REPO"
+  else
+    installed+=("torrent-agent-$name")
+    echo "  installed torrent-agent-$name  ->  $REPO"
+  fi
 done
 
 [ ${#installed[@]} -eq 0 ] && { echo "nothing installed" >&2; exit 1; }
@@ -45,3 +59,8 @@ echo "  systemctl --user enable --now ${installed[*]}"
 echo
 echo "To survive logout and start at boot (needs root once):"
 echo "  sudo loginctl enable-linger \"\$USER\""
+echo
+echo "Nothing is armed by installing prune: it refuses to remove anything"
+echo "until [prune] enabled = true in config.toml. Read a few days of"
+echo "  systemctl --user status torrent-agent-prune"
+echo "first, to see what it would have taken."
