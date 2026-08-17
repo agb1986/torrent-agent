@@ -15,6 +15,7 @@ pipeline confidently filed something under the wrong programme".
 from __future__ import annotations
 
 import logging
+import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +23,7 @@ from typing import Any
 
 from torrent_agent import deluge
 from torrent_agent.deluge import DelugeError
+from torrent_agent.security import ClamAVUnavailable, clamav_scan
 from torrent_agent.tidy import TidyPlan, execute, plan_for
 
 log = logging.getLogger("server.pipeline")
@@ -95,7 +97,33 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
             False, "deluge", f"Could not remove {name} from Deluge: {exc}"
         )
 
-    # 2. Decide the naming. This is where it refuses if anything is unclear.
+    # 2. Scan for malware before deciding anything about naming or delivery —
+    #    the extension check in torrent_agent.deluge.add_torrent is the first
+    #    gate, this is the backstop that looks at contents instead of names.
+    #    A missing scanner is an ops gap, not evidence the file is clean, so
+    #    it does not block delivery — it just means this pass didn't happen.
+    try:
+        infected = clamav_scan(source)
+    except ClamAVUnavailable:
+        infected = []
+    except Exception as exc:  # noqa: BLE001 - a scan crash must not lose the file
+        log.warning("clamav scan failed for %s: %s", name, exc)
+        infected = []
+    if infected:
+        quarantine_dir = source.parent / "quarantine"
+        quarantine_dir.mkdir(exist_ok=True)
+        dest = quarantine_dir / source.name
+        try:
+            shutil.move(str(source), str(dest))
+        except OSError:
+            pass  # couldn't move it — leave it in place, still reported below
+        return Outcome(
+            False, "security",
+            f"{name} failed a malware scan — quarantined, not filed.",
+            details=infected,
+        )
+
+    # 3. Decide the naming. This is where it refuses if anything is unclear.
     plan = plan_for(source)
     if not plan.confident:
         return Outcome(
@@ -106,13 +134,13 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
             details=plan.problems,
         )
 
-    # 3. Rename into place, still inside the downloads directory.
+    # 4. Rename into place, still inside the downloads directory.
     try:
         execute(plan)
     except (OSError, ValueError) as exc:
         return Outcome(False, "tidy", f"Tidy failed for {name}: {exc}", plan=plan)
 
-    # 4. Deliver. On the server this is a move onto the same filesystem; from
+    # 5. Deliver. On the server this is a move onto the same filesystem; from
     #    a laptop it is still rsync. transfer.py decides which.
     dest = _destination_for(plan.kind, config)
     if not dest:
@@ -131,7 +159,7 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
             plan=plan,
         )
 
-    # 5. Tell Jellyfin. Best-effort by design: the files have landed, so a
+    # 6. Tell Jellyfin. Best-effort by design: the files have landed, so a
     #    failed scan is a nuisance, not a lost download.
     landed = f"{dest}/{plan.root.name}"
     # scan_jellyfin swallows its own errors and reports them on stdout, so
@@ -177,5 +205,8 @@ def format_outcome(outcome: Outcome) -> str:
         lines.append("")
         lines += [f"  • {d}" for d in outcome.details[:5]]
     lines.append("")
-    lines.append("Left where it is — nothing was renamed or moved.")
+    if outcome.stage == "security":
+        lines.append("Moved to quarantine/ — not filed, not delivered.")
+    else:
+        lines.append("Left where it is — nothing was renamed or moved.")
     return "\n".join(lines)

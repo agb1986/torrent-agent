@@ -12,6 +12,7 @@ import contextlib
 import pytest
 
 from server import pipeline
+from torrent_agent.security import ClamAVUnavailable
 from torrent_agent.tidy import Move, TidyPlan
 
 CONFIG = {
@@ -49,6 +50,10 @@ def wired(monkeypatch, tmp_path):
         transfer, "scan_jellyfin", lambda path: calls["scanned"].append(path)
     )
     monkeypatch.setattr(pipeline, "execute", lambda plan: calls["executed"].append(plan))
+
+    # Clean by default — individual tests override to exercise quarantine.
+    calls["infected"] = []
+    monkeypatch.setattr(pipeline, "clamav_scan", lambda src: calls["infected"])
 
     source = tmp_path / "downloads" / "Some.Show.S01"
     source.mkdir(parents=True)
@@ -145,6 +150,69 @@ def test_a_jellyfin_failure_does_not_fail_a_delivered_file(wired, monkeypatch, t
 
     # The files are on the server; a missed scan is a nuisance, not a loss.
     assert outcome.ok
+
+
+# --- malware gate ----------------------------------------------------------
+
+
+def test_an_infected_download_is_quarantined_not_tidied(wired, monkeypatch, tmp_path):
+    calls = wired
+    calls["infected"] = ["/mnt/data/downloads/Some.Show.S01/payload.exe"]
+    plan = _confident_plan(tmp_path)
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: plan)
+
+    outcome = pipeline.run(calls["torrent"], CONFIG)
+
+    assert not outcome.ok
+    assert outcome.stage == "security"
+    assert calls["executed"] == [], "an infected download must never reach tidy"
+    assert calls["delivered"] == []
+    assert not calls["source"].exists(), "the original path should be empty..."
+    assert (calls["source"].parent / "quarantine" / calls["source"].name).is_dir(), (
+        "...because it moved into quarantine/"
+    )
+
+
+def test_an_infected_download_removes_the_torrent_first(wired, monkeypatch, tmp_path):
+    # Same ordering guarantee as every other outcome: Deluge goes first
+    # regardless of what happens afterward, or a live torrent keeps seeding
+    # from files this pass is about to move.
+    calls = wired
+    calls["infected"] = ["payload.exe"]
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: _confident_plan(tmp_path))
+
+    pipeline.run(calls["torrent"], CONFIG)
+
+    assert calls["removed"] == ["abc123"]
+
+
+def test_a_missing_scanner_does_not_block_delivery(wired, monkeypatch, tmp_path):
+    """ClamAVUnavailable means "couldn't check", not "infected" — must not
+    quarantine a clean download just because clamscan isn't installed."""
+    calls = wired
+
+    def unavailable(src):
+        raise ClamAVUnavailable("clamscan is not installed")
+
+    monkeypatch.setattr(pipeline, "clamav_scan", unavailable)
+    plan = _confident_plan(tmp_path)
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: plan)
+
+    outcome = pipeline.run(calls["torrent"], CONFIG)
+
+    assert outcome.ok
+    assert calls["executed"] == [plan]
+
+
+def test_the_quarantine_message_does_not_claim_nothing_moved():
+    text = pipeline.format_outcome(
+        pipeline.Outcome(
+            False, "security", "X failed a malware scan — quarantined, not filed.",
+            details=["payload.exe"],
+        )
+    )
+    assert "quarantine/" in text
+    assert "Left where it is" not in text
 
 
 def test_the_message_says_nothing_moved_when_it_refuses():

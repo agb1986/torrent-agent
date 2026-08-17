@@ -116,6 +116,33 @@ Prowlarr API key). Prowlarr + FlareSolverr run via `docker-compose.yml`.
   tag** so they route through FlareSolverr; without it they fail with
   "blocked by CloudFlare Protection". YTS needs no tag.
 
+## Malware defenses (`torrent_agent/security.py`)
+
+Fake releases happen — a real-looking name (even a real release group tag)
+wrapping an executable instead of a video. Two independent gates, neither a
+substitute for the other:
+
+- **Before download** (`deluge.add_torrent`): once the torrent has a file
+  list — instant for a `.torrent` URL add, since Deluge parses it
+  synchronously; slower for a bare magnet, which waits on DHT/peers — any
+  file with a dangerous extension (`.exe`, `.scr`, `.bat`, `.msi`, `.jar`,
+  `.ps1`, `.lnk`, `.apk`, …) gets the torrent removed with its data before
+  the payload downloads. Metadata that never arrives within
+  `_METADATA_TIMEOUT` (20s) does not block the add — a stalled magnet isn't
+  evidence either way, and the second gate is the backstop.
+- **After download** (`server/pipeline.py`, between removing the finished
+  torrent from Deluge and handing it to `tidy`): `clamav_scan` runs
+  `clamscan` over the downloaded path. An infected file gets moved to a
+  `quarantine/` directory next to it — not deleted, not filed, not
+  delivered — and the pipeline stops with stage `"security"`.
+
+`clamscan` missing (`ClamAVUnavailable`) is treated as "couldn't check", not
+"clean" — it does not quarantine and does not block delivery. It's a plain
+one-off `clamscan` invocation, not a standing `clamd` daemon: `clamd` would
+shave the per-scan signature-DB-load latency at the cost of ~100MB+ RAM held
+permanently, not worth it at this download volume. `freshclam` updates
+definitions on its own service, no cron needed.
+
 ## Gotchas learned the hard way
 
 - **Bind Deluge by interface NAME, never by IP.** Verified live: a PIA

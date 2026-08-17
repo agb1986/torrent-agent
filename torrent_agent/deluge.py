@@ -8,11 +8,14 @@ localclient credentials work without extra setup.
 from __future__ import annotations
 
 import json
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
 from deluge_client import DelugeRPCClient
+
+from . import security
 
 
 class DelugeError(RuntimeError):
@@ -150,8 +153,36 @@ def connect(config: dict[str, Any]) -> Iterator[DelugeRPCClient]:
             pass
 
 
+# How long to wait for a freshly-added torrent's file list before giving up
+# on the pre-download check. A .torrent URL add has this instantly — Deluge
+# parses the file synchronously. A bare magnet needs to hear from DHT/peers
+# first, which can take longer; timing out lets the add through rather than
+# blocking on an inconclusive state (the post-download scan in
+# torrent_agent.security is the backstop for whatever this misses).
+_METADATA_TIMEOUT = 20.0
+_METADATA_POLL = 0.5
+
+
+def _wait_for_files(client: DelugeRPCClient, tid: str) -> list[dict] | None:
+    """Poll for the torrent's file list. None if metadata never arrived in time."""
+    deadline = time.monotonic() + _METADATA_TIMEOUT
+    while time.monotonic() < deadline:
+        status = client.call("core.get_torrent_status", tid, ["files"])
+        files = status.get(b"files") or status.get("files")
+        if files:
+            return files
+        time.sleep(_METADATA_POLL)
+    return None
+
+
 def add_torrent(result_link: str, config: dict[str, Any]) -> str:
-    """Add a magnet URI or torrent URL to Deluge. Returns the torrent id."""
+    """Add a magnet URI or torrent URL to Deluge. Returns the torrent id.
+
+    Before returning, waits briefly for the file list and refuses — removing
+    what was just added, data included — if it contains an executable
+    instead of media. See torrent_agent.security for why this exists and for
+    the second check that runs once the download finishes.
+    """
     with connect(config) as client:
         try:
             if result_link.startswith("magnet:"):
@@ -161,11 +192,23 @@ def add_torrent(result_link: str, config: dict[str, Any]) -> str:
         except Exception as exc:
             raise DelugeError(f"Deluge rejected the torrent: {exc}") from exc
 
-    if tid is None:
-        raise DelugeError(
-            "Deluge returned no torrent id — it may already be in the session."
-        )
-    return tid.decode() if isinstance(tid, bytes) else str(tid)
+        if tid is None:
+            raise DelugeError(
+                "Deluge returned no torrent id — it may already be in the session."
+            )
+        tid = tid.decode() if isinstance(tid, bytes) else str(tid)
+
+        files = _wait_for_files(client, tid)
+        if files:
+            bad = security.flag_dangerous_files(files)
+            if bad:
+                client.call("core.remove_torrent", tid, True)
+                raise DelugeError(
+                    "Blocked: release contains executable file(s) instead of "
+                    f"media ({', '.join(bad[:5])}). Removed — nothing downloaded."
+                )
+
+    return tid
 
 
 # --- listing ------------------------------------------------------------- #
