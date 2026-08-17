@@ -1,0 +1,18 @@
+[Unit]
+Description=Reclaim disk by removing torrents that have finished seeding
+Documentation=https://github.com/agb1986/torrent-agent
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__REPO__
+EnvironmentFile=__REPO__/.env.bot
+# --apply, but the script still refuses to remove anything while
+# [prune] enabled = false, which is the default. So installing this timer arms
+# nothing: it reports into the journal until the policy is deliberately turned
+# on, and the report is what tells you whether the thresholds are sane before
+# they start deleting.
+ExecStart=__REPO__/.venv/bin/python -u __REPO__/scripts/prune.py --apply
+
+# No [Install] section: started by its .timer. See the doctor unit.

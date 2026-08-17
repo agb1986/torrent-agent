@@ -61,9 +61,30 @@ Units live in `deploy/systemd/`, and their paths assume
 | `sub` | Reconciles followed series — fetches episodes as they air |
 | `pfsync` | Keeps Deluge's listen port on gluetun's rotating forwarded port |
 
+Plus three **timers** (oneshot service + `.timer`, enabled via the timer, not
+the service): `doctor` (health check, alerts on change) and `prune` (disk
+reclaim, **disarmed by default**).
+
 - **After `git pull` on the server, restart *all four*.** Python holds the old
   module in memory, and this has bitten twice: a fix deployed but not running
-  looks exactly like a fix that did not work.
+  looks exactly like a fix that did not work. `deploy/update.sh` does it, and
+  `deploy/install-hooks.sh` installs a `post-merge` hook so a bare `git pull`
+  does too. update.sh also re-renders installed unit files — they are
+  `__REPO__` templates expanded at install time, so a unit change in git is
+  invisible until someone reinstalls it.
+- **`scripts/prune.py` is the only code here that deletes the user's media.**
+  Three independent brakes, all load-bearing: `[prune] enabled` is false by
+  default; it exits early while free space is above `min_free_gb`; and a
+  candidate must satisfy *both* `min_seed_hours` and `min_ratio` — either
+  alone is a bad rule, since a popular release hits ratio 2.0 in an hour and
+  an unpopular one never does. It stops as soon as the free-space target is
+  met, longest-seeded first (not largest — that greedily eats box sets). Don't
+  "simplify" any of these away.
+- **`doctor_alert.py` messages on change, never on state.** Persisted failing
+  set in `tmp/doctor_alerts.json`; a fault identical to yesterday's sends
+  nothing. A daily "still broken" is how a monitor becomes something you swipe
+  away. It also refuses to record state when the send failed — otherwise an
+  undelivered alert counts as old news and is never re-sent.
 - **`server/pipeline.py` refuses rather than guesses.** `torrent_agent/tidy.py`
   builds a plan and is confident only with one show name across all files, a
   TVmaze episode for each, and an unambiguous TMDB id. Short of that nothing

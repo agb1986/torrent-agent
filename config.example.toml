@@ -101,6 +101,24 @@ api_key = ""
 # Settings -> API. Prefer the TMDB_API_KEY env var over storing it here.
 api_key = ""
 
+[prune]
+# scripts/prune.py reclaims disk by removing torrents that have finished
+# seeding. OFF by default, and the only thing here that deletes your media, so
+# read a few days of its reports before turning it on:
+#   python scripts/prune.py            (says what it would take, removes nothing)
+enabled = false
+# Do nothing at all while there is this much room. Pruning reclaims space; it
+# does not enforce a seed policy, so a half-empty disk loses nothing.
+min_free_gb = 200
+# A torrent must meet BOTH before it is a candidate. Either alone is a bad
+# rule: a popular release hits ratio 2.0 in an hour, an unpopular one never
+# does however long it seeds.
+min_seed_hours = 72
+min_ratio = 1.0
+# The files too, not just the entry in Deluge. false frees nothing, which
+# makes it pointless, but is the safe way to watch it run once.
+delete_data = true
+
 [jellyfin.path_map]
 # Server path -> path inside the Jellyfin container (its bind mounts). These
 # are per-install, so there is no default. Jellyfin mounts each library

@@ -1,6 +1,6 @@
 # systemd user units
 
-Two long-running pieces that previously had nothing keeping them alive:
+Long-running services that previously had nothing keeping them alive:
 
 | Unit | What it does | Why it must not die quietly |
 |---|---|---|
@@ -8,6 +8,18 @@ Two long-running pieces that previously had nothing keeping them alive:
 | `torrent-agent-pfsync.service` | `scripts/sync_pf_port.py --watch` | Proton's NAT-PMP lease rotates; when it moves and nothing re-syncs, Deluge silently drops to **zero inbound peers** with nothing in any log |
 | `torrent-agent-sub.service` | Fetches new episodes of followed series (`/sub`) | Nothing else watches a running show; without it, following a series means remembering to ask each week |
 | `torrent-agent-notifier.service` | Watches Deluge, messages Telegram on completion | Nothing else polls: the `fetch-to-jellyfin` skill only watches while a session drives it, and Deluge's Execute plugin is disabled. Downloads finished and sat in `complete/` with nobody told |
+
+And two periodic ones, each a `Type=oneshot` service plus a `.timer`:
+
+| Timer | What it does | Why on a schedule |
+|---|---|---|
+| `torrent-agent-doctor.timer` | `scripts/doctor_alert.py` daily | Every check in the doctor is for something that fails *silently*. Until this existed they only ran when a human thought to type them — which is the moment they are least likely to be needed |
+| `torrent-agent-prune.timer` | `scripts/prune.py --apply` daily | Disk fills monotonically otherwise. **Deletes nothing** until `[prune] enabled = true` — see below |
+
+It is the **timer** that gets enabled, not the oneshot service. The oneshots
+carry no `[Install]` section on purpose: enabling one directly would try to run
+it at boot and never again, and `systemctl enable` on it fails in a way that
+reads like a broken unit rather than a deliberate one.
 
 **User** units, not system ones, so no root is needed and they run as the
 account that owns `~/.config/deluge` and the virtualenv.
@@ -18,6 +30,8 @@ account that owns `~/.config/deluge` and the virtualenv.
 ./deploy/install-units.sh
 systemctl --user enable --now torrent-agent-bot torrent-agent-notifier \
   torrent-agent-pfsync torrent-agent-sub
+systemctl --user enable --now torrent-agent-doctor.timer \
+  torrent-agent-prune.timer
 ```
 
 The units are templates carrying `__REPO__`; `install-units.sh` substitutes
@@ -33,18 +47,28 @@ sudo loginctl enable-linger "$USER"
 ## Update
 
 ```bash
-./deploy/update.sh          # pull, test, restart every service
+./deploy/update.sh          # pull, test, re-render units, restart every service
+./deploy/install-hooks.sh   # once: do that automatically after any git pull
 ```
 
 Restarts all four rather than the ones that look changed: Python holds the old
 module in memory after a pull, and a fix that is deployed but not running looks
 exactly like a fix that did not work.
 
+It also re-runs `install-units.sh` for whatever is already installed here. The
+units are templates expanded at install time, so a change to one in git stays
+invisible until it is rendered again — the same failure as the stale module,
+one level down. Only units already present are touched, so running it on a
+laptop installs nothing (and does not start a second bot against the same
+Telegram token).
+
 ## Watch them
 
 ```bash
 systemctl --user status torrent-agent-bot
 journalctl --user -u torrent-agent-pfsync -f
+systemctl --user list-timers 'torrent-agent-*'
+journalctl --user -u torrent-agent-prune      # what it would have taken
 ```
 
 ## Notes
@@ -66,3 +90,13 @@ journalctl --user -u torrent-agent-pfsync -f
 - The notifier takes `TORRENT_AGENT_AUTODELIVER=1` (in `.env.bot`) to tidy and
   file finished downloads rather than only announcing them. Only set it on the
   machine the media library actually lives on.
+- The oneshots have no `Restart=`. For the doctor a non-zero exit is the
+  *normal* result of a failing check, and retrying it would send nothing new
+  while filling the journal — the timer is the retry. Both set
+  `Persistent=true`, so a run missed while the box was asleep happens at the
+  next boot instead of being skipped; a monitor that only works on machines
+  with perfect uptime is monitoring the wrong thing.
+- **Installing the prune timer arms nothing.** It runs with `--apply`, but the
+  script still refuses while `[prune] enabled = false`, which is the default.
+  Read a few days of `journalctl --user -u torrent-agent-prune` to check the
+  thresholds are sane *before* they start deleting.

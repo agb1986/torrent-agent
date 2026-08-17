@@ -189,6 +189,50 @@ One Piece, not the 1999 anime). `scripts/tmdb_id.py` resolves the id; it needs
 no API key, falling back to Wikidata, but will use TMDB directly if
 `TMDB_API_KEY` is set.
 
+## Housekeeping (unattended)
+
+Two periodic jobs, installed as systemd **timers** by
+`deploy/install-units.sh` alongside the long-running services. Each also runs
+by hand.
+
+| Timer | Does | Armed? |
+|---|---|---|
+| `doctor` | Runs `scripts/doctor.py` daily and messages Telegram **when the result changes** | yes |
+| `prune` | Removes torrents that have finished seeding, to reclaim disk | **no** — see below |
+
+**The doctor alert messages on change, not on state.** A check that starts
+failing gets a message; one that stops failing gets a message saying so; the
+same failures as yesterday get silence. That is what makes an empty inbox mean
+"healthy" rather than "I stopped reading these".
+
+**Pruning is off until you turn it on.** It is the only thing here that
+deletes your media, so installing the timer arms nothing — it reports into the
+journal until `[prune] enabled = true`. It does nothing at all while there is
+more than `min_free_gb` free, and a torrent is only a candidate once it has
+**both** seeded `min_seed_hours` and reached `min_ratio` — either test alone is
+wrong, since a popular release hits ratio 2.0 within the hour and an unpopular
+one never does. Watch it first:
+
+```bash
+python scripts/prune.py           # says what it would take, removes nothing
+journalctl --user -u torrent-agent-prune
+```
+
+## Keeping a deployment current
+
+```bash
+./deploy/update.sh          # pull, test, re-render units, restart everything
+./deploy/install-hooks.sh   # once per machine: do that automatically on pull
+```
+
+`update.sh` restarts **every** service rather than the ones that look changed:
+Python holds the old module in memory, so "pulled but not restarted" produces
+exactly the same symptom as "the fix did not work". It also re-renders any
+installed unit file, since the units are templates expanded at install time
+and a change to one in git is otherwise invisible. The `post-merge` hook runs
+the same path after any `git pull`, and is silent on a machine with no units
+installed.
+
 ## Tests
 
 ```bash
@@ -221,7 +265,11 @@ no API key, falling back to Wikidata, but will use TMDB directly if
 | `scripts/transfer.py` | deliver to the library (local move or rsync) + Jellyfin scan |
 | `scripts/tmdb_id.py` | resolve a title → TMDB id for Jellyfin-readable names |
 | `scripts/remove_seeding.py` | drop Seeding torrents, or specific ones with `--id` (keeps data) |
+| `scripts/doctor.py` | 12 checks for the wiring between components, with fixes |
+| `scripts/doctor_alert.py` | run the doctor on a timer; Telegram on *change* only |
+| `scripts/prune.py` | reclaim disk from torrents that have finished seeding (opt-in) |
 | `deploy/server/` | gluetun + Deluge compose, with Deluge inside the tunnel |
 | `deploy/server/.env.example` | where data lives, and which VPN — no secrets |
-| `deploy/systemd/` | user units for the bot, notifier and port sync |
+| `deploy/systemd/` | user units: four services, plus timers for the housekeeping |
+| `deploy/hooks/` | `post-merge`: restart the stack after a pull, so deployed means running |
 | `deploy/host/` | machine-level setup the stack needs but cannot apply itself |

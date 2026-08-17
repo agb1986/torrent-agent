@@ -78,6 +78,25 @@ DEFAULTS: dict[str, Any] = {
     # scripts/tmdb_id.py tags tidied media with its TMDB id. The key is
     # optional — without one it resolves ids through Wikidata instead.
     "tmdb": {"api_key": ""},
+    # scripts/prune.py reclaims disk by removing torrents that have finished
+    # seeding. Off by default, and deliberately: this is the only thing in the
+    # repo that deletes a user's media, so it must be opted into rather than
+    # arriving switched on with someone else's idea of a sensible ratio.
+    "prune": {
+        "enabled": False,
+        # Do nothing at all while there is this much room. Pruning is for
+        # reclaiming space, not for enforcing a seed policy — a half-empty
+        # disk has no reason to lose anything.
+        "min_free_gb": 200,
+        # A torrent is only a candidate once it has met BOTH: seeded this
+        # long, and reached this ratio. Either alone is a bad rule — a popular
+        # release hits 2.0 in an hour, an unpopular one never does.
+        "min_seed_hours": 72,
+        "min_ratio": 1.0,
+        # The files, not just the entry in Deluge. False frees nothing, which
+        # makes the whole thing pointless, but is the safe first run.
+        "delete_data": True,
+    },
 }
 
 

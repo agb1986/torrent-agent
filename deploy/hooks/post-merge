@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Restart the unattended stack after a pull, so a deployed fix is a running fix.
+#
+# Installed by deploy/install-hooks.sh. Git runs this after any merge that
+# changes the working tree, which includes `git pull`.
+#
+# This exists because forgetting the restart has cost real debugging time
+# twice: Python holds the old module, so the symptom of "pulled but not
+# restarted" is identical to "the fix did not work". A reminder printed here
+# would be read exactly as often as the last one was.
+#
+# Silent and harmless where none of it is installed — a clone on a laptop
+# has no units, so the loop inside update.sh finds nothing to restart.
+set -uo pipefail
+
+repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -x "$repo/deploy/update.sh" ] || exit 0
+
+# Nothing enabled here means nothing to do, and checking first keeps the hook
+# quiet on a development clone rather than running the test suite after every
+# merge. *Enabled*, not present: the laptop still has unit files from a
+# rehearsal that was torn down, and those must not count as a deployment.
+running=0
+for unit in bot notifier pfsync sub; do
+  systemctl --user is-enabled "torrent-agent-$unit" >/dev/null 2>&1 && running=1
+done
+[ "$running" = 1 ] || exit 0
+
+echo "post-merge: restarting the torrent-agent stack"
+# Never fail the merge. The merge already happened; a non-zero exit here would
+# only make git print an alarming failure for something that is already done.
+"$repo/deploy/update.sh" --no-pull || {
+  echo "post-merge: update.sh reported a problem — run it by hand" >&2
+}
+exit 0
