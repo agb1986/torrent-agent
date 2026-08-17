@@ -97,18 +97,6 @@ DEFAULTS: dict[str, Any] = {
         # makes the whole thing pointless, but is the safe first run.
         "delete_data": True,
     },
-    # scripts/backup.py snapshots the small state that is expensive to lose:
-    # the subscription list, and Deluge's own config and torrent list.
-    "backup": {
-        # Empty means <repo>/tmp/backups. Put it on a different disk than the
-        # one it is backing up if you have one.
-        "dir": "",
-        "keep": 14,
-        # Deluge's config directory. Empty derives it: the parent of
-        # [deluge] auth_file when that is set (which is how a containerised
-        # daemon is already pointed at), else ~/.config/deluge.
-        "deluge_config_dir": "",
-    },
 }
 
 

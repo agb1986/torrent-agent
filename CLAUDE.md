@@ -62,8 +62,8 @@ Units live in `deploy/systemd/`, and their paths assume
 | `pfsync` | Keeps Deluge's listen port on gluetun's rotating forwarded port |
 
 Plus three **timers** (oneshot service + `.timer`, enabled via the timer, not
-the service): `doctor` (health check, alerts on change), `backup` (state
-snapshot), `prune` (disk reclaim, **disarmed by default**).
+the service): `doctor` (health check, alerts on change) and `prune` (disk
+reclaim, **disarmed by default**).
 
 - **After `git pull` on the server, restart *all four*.** Python holds the old
   module in memory, and this has bitten twice: a fix deployed but not running
@@ -85,9 +85,6 @@ snapshot), `prune` (disk reclaim, **disarmed by default**).
   nothing. A daily "still broken" is how a monitor becomes something you swipe
   away. It also refuses to record state when the send failed — otherwise an
   undelivered alert counts as old news and is never re-sent.
-- **`backup.py` excludes Deluge's `auth`.** Same reasoning as the fixture
-  rule: an archive gets copied around far more casually than the file it came
-  from. Media is excluded too — a backup that cannot finish is not a backup.
 - **`server/pipeline.py` refuses rather than guesses.** `torrent_agent/tidy.py`
   builds a plan and is confident only with one show name across all files, a
   TVmaze episode for each, and an unambiguous TMDB id. Short of that nothing

@@ -9,12 +9,11 @@ Long-running services that previously had nothing keeping them alive:
 | `torrent-agent-sub.service` | Fetches new episodes of followed series (`/sub`) | Nothing else watches a running show; without it, following a series means remembering to ask each week |
 | `torrent-agent-notifier.service` | Watches Deluge, messages Telegram on completion | Nothing else polls: the `fetch-to-jellyfin` skill only watches while a session drives it, and Deluge's Execute plugin is disabled. Downloads finished and sat in `complete/` with nobody told |
 
-And three periodic ones, each a `Type=oneshot` service plus a `.timer`:
+And two periodic ones, each a `Type=oneshot` service plus a `.timer`:
 
 | Timer | What it does | Why on a schedule |
 |---|---|---|
 | `torrent-agent-doctor.timer` | `scripts/doctor_alert.py` daily | Every check in the doctor is for something that fails *silently*. Until this existed they only ran when a human thought to type them — which is the moment they are least likely to be needed |
-| `torrent-agent-backup.timer` | `scripts/backup.py` daily | Losing `subscriptions.json` stops `/sub` fetching with no error at all; losing Deluge's `state/` empties the session and it starts up perfectly happy |
 | `torrent-agent-prune.timer` | `scripts/prune.py --apply` daily | Disk fills monotonically otherwise. **Deletes nothing** until `[prune] enabled = true` — see below |
 
 It is the **timer** that gets enabled, not the oneshot service. The oneshots
@@ -32,7 +31,7 @@ account that owns `~/.config/deluge` and the virtualenv.
 systemctl --user enable --now torrent-agent-bot torrent-agent-notifier \
   torrent-agent-pfsync torrent-agent-sub
 systemctl --user enable --now torrent-agent-doctor.timer \
-  torrent-agent-backup.timer torrent-agent-prune.timer
+  torrent-agent-prune.timer
 ```
 
 The units are templates carrying `__REPO__`; `install-units.sh` substitutes
@@ -93,7 +92,7 @@ journalctl --user -u torrent-agent-prune      # what it would have taken
   machine the media library actually lives on.
 - The oneshots have no `Restart=`. For the doctor a non-zero exit is the
   *normal* result of a failing check, and retrying it would send nothing new
-  while filling the journal — the timer is the retry. All three set
+  while filling the journal — the timer is the retry. Both set
   `Persistent=true`, so a run missed while the box was asleep happens at the
   next boot instead of being skipped; a monitor that only works on machines
   with perfect uptime is monitoring the wrong thing.

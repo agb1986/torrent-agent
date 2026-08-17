@@ -26,7 +26,7 @@ REPO="$PWD"
 UNIT_DIR="$HOME/.config/systemd/user"
 
 SERVICES=(torrent-agent-bot torrent-agent-notifier torrent-agent-pfsync torrent-agent-sub)
-TIMERS=(torrent-agent-doctor torrent-agent-prune torrent-agent-backup)
+TIMERS=(torrent-agent-doctor torrent-agent-prune)
 
 PULL=1
 [ "${1:-}" = "--no-pull" ] && PULL=0

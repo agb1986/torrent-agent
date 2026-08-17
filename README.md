@@ -191,26 +191,19 @@ no API key, falling back to Wikidata, but will use TMDB directly if
 
 ## Housekeeping (unattended)
 
-Three periodic jobs, installed as systemd **timers** by
+Two periodic jobs, installed as systemd **timers** by
 `deploy/install-units.sh` alongside the long-running services. Each also runs
 by hand.
 
 | Timer | Does | Armed? |
 |---|---|---|
 | `doctor` | Runs `scripts/doctor.py` daily and messages Telegram **when the result changes** | yes |
-| `backup` | Snapshots subscriptions, notifier state and Deluge's config + torrent list | yes |
 | `prune` | Removes torrents that have finished seeding, to reclaim disk | **no** — see below |
 
 **The doctor alert messages on change, not on state.** A check that starts
 failing gets a message; one that stops failing gets a message saying so; the
 same failures as yesterday get silence. That is what makes an empty inbox mean
 "healthy" rather than "I stopped reading these".
-
-**Backups deliberately exclude media** (terabytes, and replaceable) and
-Deluge's `auth` file (a credential, and an archive is far easier to copy
-around carelessly than the file it came from). Restoring is manual on purpose:
-stop the services first, because deluged rewrites `core.conf` on shutdown and
-would write your restore straight back out.
 
 **Pruning is off until you turn it on.** It is the only thing here that
 deletes your media, so installing the timer arms nothing — it reports into the
@@ -275,7 +268,6 @@ installed.
 | `scripts/doctor.py` | 12 checks for the wiring between components, with fixes |
 | `scripts/doctor_alert.py` | run the doctor on a timer; Telegram on *change* only |
 | `scripts/prune.py` | reclaim disk from torrents that have finished seeding (opt-in) |
-| `scripts/backup.py` | snapshot subscriptions, notifier state and Deluge's config |
 | `deploy/server/` | gluetun + Deluge compose, with Deluge inside the tunnel |
 | `deploy/server/.env.example` | where data lives, and which VPN — no secrets |
 | `deploy/systemd/` | user units: four services, plus timers for the housekeeping |

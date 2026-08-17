@@ -119,14 +119,6 @@ min_ratio = 1.0
 # makes it pointless, but is the safe way to watch it run once.
 delete_data = true
 
-[backup]
-# scripts/backup.py snapshots the subscription list, the notifier's state and
-# Deluge's config + torrent list. Media is deliberately not included.
-dir = ""                  # empty = <repo>/tmp/backups
-keep = 14
-# Empty derives it from [deluge] auth_file's directory, else ~/.config/deluge.
-deluge_config_dir = ""
-
 [jellyfin.path_map]
 # Server path -> path inside the Jellyfin container (its bind mounts). These
 # are per-install, so there is no default. Jellyfin mounts each library

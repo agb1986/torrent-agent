@@ -11,14 +11,14 @@
 # hand-edited — which drifts the moment anything changes.
 #
 # Two kinds live here. The long-running services (bot, notifier, pfsync, sub)
-# are enabled directly. The periodic ones (doctor, prune, backup) are a
+# are enabled directly. The periodic ones (doctor, prune) are a
 # oneshot .service plus a .timer, and it is the *timer* that gets enabled —
 # enabling the service would try to run it once at boot and never again.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
-ALL=(bot notifier pfsync sub doctor prune backup)
+ALL=(bot notifier pfsync sub doctor prune)
 
 wanted=("$@")
 [ ${#wanted[@]} -eq 0 ] && wanted=("${ALL[@]}")
