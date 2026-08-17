@@ -243,15 +243,15 @@ installed.
 
 | File | Role |
 |------|------|
-| `agent.py`   | Claude tool-use loop + tool definitions |
-| `search.py`  | Prowlarr / apibay clients → normalized results |
-| `ranking.py` | `guessit` parse + scoring |
-| `vpn.py`     | host-tunnel / gluetun VPN check + tunnel device detection |
-| `deluge.py`  | daemon RPC: shared connect, add magnet, list torrents |
-| `config.py`  | defaults ← `config.toml` ← env |
-| `imdb.py`    | IMDb link or `tt…` id → searchable title and year |
-| `tidy.py`    | plan a rename, and refuse when anything is unclear |
-| `cli.py`     | entrypoint |
+| `torrent_agent/agent.py`   | Claude tool-use loop + tool definitions |
+| `torrent_agent/search.py`  | Prowlarr / apibay clients → normalized results |
+| `torrent_agent/ranking.py` | `guessit` parse + scoring |
+| `torrent_agent/vpn.py`     | host-tunnel / gluetun VPN check + tunnel device detection |
+| `torrent_agent/deluge.py`  | daemon RPC: shared connect, add magnet, list torrents |
+| `torrent_agent/config.py`  | defaults ← `config.toml` ← env |
+| `torrent_agent/imdb.py`    | IMDb link or `tt…` id → searchable title and year |
+| `torrent_agent/tidy.py`    | plan a rename, and refuse when anything is unclear |
+| `torrent_agent/cli.py`     | entrypoint |
 | `server/bot.py` | Telegram bot: `/get`, `/status`, `/cancel` |
 | `server/sub.py` | follow a running series; fetch episodes as they air |
 | `server/notifier.py` | watch for finished downloads; announce or deliver |
@@ -273,3 +273,7 @@ installed.
 | `deploy/systemd/` | user units: four services, plus timers for the housekeeping |
 | `deploy/hooks/` | `post-merge`: restart the stack after a pull, so deployed means running |
 | `deploy/host/` | machine-level setup the stack needs but cannot apply itself |
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
