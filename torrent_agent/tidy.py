@@ -112,12 +112,30 @@ def safe_name(text: str) -> str:
     return re.sub(r"\s+", " ", cleaned)
 
 
-def tvmaze_show(title: str) -> dict | None:
+def tvmaze_show(title: str, year: int | None = None) -> dict | None:
+    """Look up a show by title, disambiguated by release year.
+
+    `singlesearch` picks TVmaze's single best-scored match by title alone,
+    which silently prefers an older, more popular show over a same-titled
+    reboot/remake (e.g. "Frasier" 1993 over the 2023 revival) — wrong tmdb id,
+    wrong library folder, invisible until someone watches it. `search/shows`
+    returns every candidate with its premiere date, so pick the one whose
+    year matches the release when we have one.
+    """
     q = urllib.parse.urlencode({"q": title})
     try:
-        return _get_json(f"{_TVMAZE}/singlesearch/shows?{q}")
+        results = _get_json(f"{_TVMAZE}/search/shows?{q}")
     except (urllib.error.URLError, OSError, ValueError):
         return None
+    if not results:
+        return None
+    if year is not None:
+        for row in results:
+            show = row.get("show") or {}
+            premiered = str(show.get("premiered") or "")
+            if premiered[:4].isdigit() and int(premiered[:4]) == year:
+                return show
+    return results[0].get("show")
 
 
 def tvmaze_episode_details(show_id: int) -> dict[tuple[int, int], dict]:
@@ -224,7 +242,10 @@ def _plan_tv(source: Path, episodes: list[tuple[Path, dict]]) -> TidyPlan:
         )
     parsed_title = titles.pop()
 
-    show = tvmaze_show(parsed_title)
+    years = {g.get("year") for _f, g in episodes if g.get("year")}
+    release_year = years.pop() if len(years) == 1 else None
+
+    show = tvmaze_show(parsed_title, release_year)
     if not show:
         return TidyPlan(kind="tv", problems=[f"TVmaze has no match for {parsed_title!r}"])
 

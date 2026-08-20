@@ -29,8 +29,8 @@ def tv_lookups(monkeypatch):
     def _install(name="Generation Kill", premiered="2008-07-13", episodes=None, tmdb="17035"):
         monkeypatch.setattr(
             tidy, "tvmaze_show",
-            lambda title: {"id": 1240, "name": name, "premiered": premiered,
-                           "externals": {"imdb": "tt0995832"}},
+            lambda title, year=None: {"id": 1240, "name": name, "premiered": premiered,
+                                       "externals": {"imdb": "tt0995832"}},
         )
         monkeypatch.setattr(
             tidy, "tvmaze_episodes",
@@ -45,6 +45,29 @@ def tv_lookups(monkeypatch):
         )
 
     return _install
+
+
+# --- tvmaze_show year disambiguation ---------------------------------------
+
+
+def test_tvmaze_show_picks_the_matching_release_year(monkeypatch):
+    """A same-titled reboot must not resolve to the original show.
+
+    Regression for the "Frasier" bug: title-only search picked the 1993
+    original (tt0106004) over the 2023 revival (tt14124236) the user
+    actually asked for, writing the download into the wrong library folder.
+    """
+    original = {"id": 540, "name": "Frasier", "premiered": "1993-09-16",
+                "externals": {"imdb": "tt0106004"}}
+    reboot = {"id": 53775, "name": "Frasier", "premiered": "2023-10-12",
+              "externals": {"imdb": "tt14124236"}}
+    monkeypatch.setattr(
+        tidy, "_get_json", lambda url: [{"show": original}, {"show": reboot}],
+    )
+
+    assert tidy.tvmaze_show("Frasier", 2023) == reboot
+    assert tidy.tvmaze_show("Frasier", 1993) == original
+    assert tidy.tvmaze_show("Frasier", None) == original  # first result, unresolved
 
 
 # --- the happy paths ------------------------------------------------------
@@ -126,7 +149,7 @@ def test_a_film_without_a_year_is_escalated(tmp_path):
 
 
 def test_unknown_show_is_escalated(tmp_path, monkeypatch):
-    monkeypatch.setattr(tidy, "tvmaze_show", lambda title: None)
+    monkeypatch.setattr(tidy, "tvmaze_show", lambda title, year=None: None)
     src = tmp_path / "Obscure.Thing.S01E01.1080p"
     _mk(src / "Obscure.Thing.S01E01.1080p.mkv")
 

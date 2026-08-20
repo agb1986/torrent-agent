@@ -195,7 +195,9 @@ definitions on its own service, no cron needed.
   `h265`/`x265`/`hevc`. `ranking._codec_matches` strips non-alphanumerics on both
   sides so they compare equal — don't substring-match raw.
 - **Multi-add:** the system prompt picks a single best release by default, but the
-  model will add one torrent per episode when explicitly asked for "all episodes".
+  model will add one torrent per episode when explicitly asked for "all episodes" —
+  and falls back to per-episode search/add on its own when a whole-show/season
+  request finds no full series or season pack, rather than reporting nothing found.
 
 ## Media server (CASAOS + Jellyfin)
 

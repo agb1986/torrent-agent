@@ -157,7 +157,17 @@ def default_config_path() -> Path:
     if not env:
         return _REPO_ROOT / "config.toml"
     p = Path(env).expanduser()
-    return p if p.is_absolute() else _REPO_ROOT / p
+    p = p if p.is_absolute() else _REPO_ROOT / p
+    if not p.is_file():
+        # An unset TORRENT_AGENT_CONFIG falling back to bare DEFAULTS is fine
+        # (fresh clone, tests). A *set-but-missing* one is always a mistake —
+        # e.g. a unit pointed at a torn-down machine's config file — and
+        # silently running on DEFAULTS (no api_key, no indexer) fails with
+        # errors that look like the remote service is broken, not this.
+        raise FileNotFoundError(
+            f"TORRENT_AGENT_CONFIG={env!r} does not resolve to a file ({p})"
+        )
+    return p
 
 
 def load_config(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:

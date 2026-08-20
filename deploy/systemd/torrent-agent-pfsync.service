@@ -8,7 +8,11 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=__REPO__
 # The containerised stack — the only one with a control server to ask.
-Environment=TORRENT_AGENT_CONFIG=config.rehearsal.toml
+# config.toml is the server's; the laptop rehearsal stack (config.rehearsal.toml)
+# is torn down. Point this at a different file only on a machine that still runs
+# a separate gluetun stack — a missing file loads DEFAULTS silently, no api_key,
+# and every poll fails with "api_key rejected" (see deploy/systemd/README.md).
+Environment=TORRENT_AGENT_CONFIG=config.toml
 ExecStart=__REPO__/.venv/bin/python -u \
     __REPO__/scripts/sync_pf_port.py --watch
 # always, unlike the bot: this one is expected to outlive gluetun restarts and

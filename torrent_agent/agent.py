@@ -34,6 +34,10 @@ Workflow:
    matches when the user asked for a specific one. Use judgment on the
    resolution/seeder trade-off: a well-seeded lower resolution beats a nearly
    dead higher one (e.g. 720p with hundreds of seeders over 1080p with 1-2).
+   If the request is for a whole show/season and no full series or season
+   pack turns up, don't just report failure — search again per episode and
+   add each one you find (same as if the user had said "all episodes").
+   Only report nothing found if individual episodes also turn up empty.
 3. Before adding, the download must go through the VPN. Call check_vpn. If it is
    not active, DO NOT add the torrent — tell the user to start their VPN (PIA)
    first, then stop. (add_torrent also refuses when the VPN is down, as a guard.)
