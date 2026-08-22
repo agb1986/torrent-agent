@@ -204,17 +204,27 @@ class AgentRunner:
     def _parse(out: str) -> RunResult:
         """Read the run's JSON artifact rather than scraping the prose.
 
-        cli.py prints the artifact path as its first line when it added
+        cli.py prints the artifact path on a line by itself when it added
         something, then the human summary. The artifact is the contract — the
         summary is model-authored and will drift.
+
+        Not necessarily line 0: an IMDb-link request has cli.py print an
+        "IMDb: ..." note to stderr first, which this process merges into the
+        same stream ahead of the artifact line — scan for the artifact line
+        instead of assuming position, and drop only that line, so the note
+        stays part of the summary instead of the raw path leaking into it.
         """
         lines = out.splitlines()
         artifact = None
-        if lines and lines[0].strip().endswith(".json"):
-            candidate = Path(lines[0].strip())
-            if candidate.is_file():
-                artifact = str(candidate)
-                lines = lines[1:]
+        artifact_idx = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.endswith(".json") and Path(stripped).is_file():
+                artifact = stripped
+                artifact_idx = i
+                break
+        if artifact_idx is not None:
+            lines = lines[:artifact_idx] + lines[artifact_idx + 1:]
 
         summary = "\n".join(lines).strip() or "(no summary)"
         added: list[dict[str, Any]] = []
