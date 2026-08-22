@@ -34,6 +34,10 @@ from guessit import guessit
 
 MEDIA_SUFFIXES = {".mkv", ".mp4", ".avi", ".m4v", ".mov", ".ts", ".wmv"}
 SUBTITLE_SUFFIXES = {".srt", ".sub", ".ass", ".ssa", ".idx"}
+# Manga archives/ebooks. No season/episode structure, no TMDB-equivalent id
+# space in this repo — a manga plan just routes the release, it doesn't rename
+# it (see _plan_manga).
+MANGA_SUFFIXES = {".cbz", ".cbr", ".zip", ".rar", ".pdf", ".epub"}
 
 _TVMAZE = "https://api.tvmaze.com"
 _TIMEOUT = 20
@@ -52,7 +56,7 @@ class Move:
 
 @dataclass
 class TidyPlan:
-    kind: str                       # "tv" | "film"
+    kind: str                       # "tv" | "film" | "manga"
     name: str = ""
     year: int | None = None
     tmdb_id: str | None = None
@@ -63,6 +67,11 @@ class TidyPlan:
 
     @property
     def confident(self) -> bool:
+        # Manga is routed, not renamed (see _plan_manga) — there is nothing to
+        # move at this stage, so an empty `moves` list is the expected shape,
+        # not a sign the plan is unclear.
+        if self.kind == "manga":
+            return not self.problems and self.root is not None
         return not self.problems and bool(self.moves)
 
     def describe(self) -> str:
@@ -203,6 +212,27 @@ def _resolve_tmdb(media_type: str, title: str, year: int | None, imdb: str | Non
 # --- planning -------------------------------------------------------------
 
 
+def manga_files(source: Path) -> list[Path]:
+    """Every manga archive/ebook under `source`."""
+    if source.is_file():
+        return [source] if source.suffix.lower() in MANGA_SUFFIXES else []
+    return [
+        p for p in sorted(source.rglob("*"))
+        if p.is_file() and p.suffix.lower() in MANGA_SUFFIXES
+    ]
+
+
+def _plan_manga(source: Path) -> TidyPlan:
+    """Route a manga release without renaming it.
+
+    There's no TMDB/Wikidata-equivalent id space for manga in this repo (TMDB
+    doesn't catalog it), so unlike TV/film there is no external match to be
+    confident or unsure about — the release is moved as one unit, under
+    whatever name it already has.
+    """
+    return TidyPlan(kind="manga", name=source.name, root=source)
+
+
 def plan_for(source: str | Path, destinations: dict[str, str] | None = None) -> TidyPlan:
     """Decide what `source` should become. Never touches the filesystem."""
     source = Path(source)
@@ -211,6 +241,8 @@ def plan_for(source: str | Path, destinations: dict[str, str] | None = None) -> 
 
     files = media_files(source)
     if not files:
+        if manga_files(source):
+            return _plan_manga(source)
         return TidyPlan(
             kind="unknown",
             problems=[f"no media files over {_MIN_MEDIA_BYTES // (1024*1024)}MB in {source}"],

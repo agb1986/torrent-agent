@@ -61,6 +61,11 @@ junk on the server and leaves Jellyfin unable to match it.
 If only an untidied release directory exists, run **tidy-files** first rather
 than transferring it as-is.
 
+**Exception: `--book`/`--manga`.** These have no TVmaze/TMDB-style renaming
+scheme (`tidy-files` doesn't know how to name them) and no Jellyfin scan to
+match a naming convention for — transfer the downloaded directory or file
+as-is, under its original release name, skipping tidy-files entirely.
+
 ## Step 2 — Pick the mode
 
 - **Whole directory** (a tidied show, or a batch) → Option A.

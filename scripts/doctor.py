@@ -37,6 +37,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 
 from torrent_agent.config import load_config  # noqa: E402
+from torrent_agent.error_report import record_error  # noqa: E402
 
 OK, WARN, FAIL, SKIP = "ok", "warn", "fail", "skip"
 _MARK = {OK: "ok  ", WARN: "warn", FAIL: "FAIL", SKIP: "--  "}
@@ -400,6 +401,11 @@ def run_checks(config_path: str | None = None) -> Report:
         except Exception as exc:  # a broken check must not hide the others
             r.add(fn.__name__.replace("check_", ""), FAIL, f"check itself failed: {exc}")
     check_telegram(r)
+
+    # One record site covers every caller — a direct `doctor.py` run and
+    # doctor_alert.py's scheduled call both go through run_checks().
+    for c in r.failed:
+        record_error("doctor", c.name, c.detail)
     return r
 
 

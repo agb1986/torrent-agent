@@ -32,6 +32,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 from torrent_agent import deluge
 from torrent_agent.config import load_config
 from torrent_agent.deluge import DelugeError
+from torrent_agent.error_report import record_error
 from torrent_agent.vpn import gluetun_forwarded_port
 
 # The lease outlives any sane poll interval; this is short enough to close the
@@ -146,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             _sync_once(config)
         except DelugeError as exc:
             print(f"warning: {exc}", file=sys.stderr)
+            record_error("pfsync", "watch", str(exc))
         time.sleep(args.interval)
 
 

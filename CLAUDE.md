@@ -105,6 +105,24 @@ reclaim, **disarmed by default**).
   the bot token is never leaked used the live token, and publishing it to a
   public repo tripped GitHub secret scanning. Fixtures look like credentials
   without being them.
+- **ai-data-store only sees interactive Claude Code sessions unless code
+  posts to it directly.** The normal route is a global Claude Code
+  PostToolUse hook (`~/.claude/hooks/log_artifact_entry.py`, outside this
+  repo) that watches Bash-tool stdout for a JSON artifact path — it never
+  fires for the unattended layer, which runs as plain Python under systemd,
+  not a Claude Code Bash call. `torrent_agent/ai_data_store.py` is the direct
+  equivalent for that path (`server/runner.py` after an add, `server/
+  pipeline.py` after a tidy+deliver), reading its own `AI_DATA_STORE_URL`/
+  `AI_DATA_STORE_TOKEN` rather than `~/.claude.json`. Put those only in
+  `.env.bot` — setting them in `.env` too would double-post every
+  interactive `/get` (once via the hook, once via this module).
+- **`error-report.json`** (gitignored, repo root) is a durable, append-only
+  JSON-lines log for an agent to read and act on — every `doctor.py` FAIL,
+  plus unhandled exceptions from bot/notifier/sub/pfsync, land here via
+  `torrent_agent/error_report.py`. It's a superset of, not a replacement for,
+  `doctor_alerts.json`'s change-only Telegram alert and the notifier's
+  completion messages — those are for a human and stay quiet on repeats;
+  this logs every occurrence.
 
 ## Search stack
 
@@ -115,6 +133,12 @@ Prowlarr API key). Prowlarr + FlareSolverr run via `docker-compose.yml`.
 - CloudFlare-protected indexers (1337x, EZTV) must carry the Prowlarr **`cf`
   tag** so they route through FlareSolverr; without it they fail with
   "blocked by CloudFlare Protection". YTS needs no tag.
+- **Manga** comes from nyaa.si, added as a Prowlarr indexer the same way as
+  any other (Prowlarr's own UI/catalog — this repo doesn't provision
+  indexers). Same `cf`-tag caveat if it starts throwing CloudFlare errors.
+  `media_type="manga"` sends no Prowlarr category filter
+  (`search._CATEGORIES["manga"]` is empty) — nyaa.si's own category mapping
+  isn't something to hardcode a guess at.
 
 ## Malware defenses (`torrent_agent/security.py`)
 
@@ -198,6 +222,21 @@ definitions on its own service, no cron needed.
   model will add one torrent per episode when explicitly asked for "all episodes" —
   and falls back to per-episode search/add on its own when a whole-show/season
   request finds no full series or season pack, rather than reporting nothing found.
+- **Episode ranges and exclusions** ("all S01 except E01", "first 2 episodes
+  of Father Ted S03") go through a `list_episodes` tool (TVmaze, via
+  `torrent_agent.tidy.tvmaze_show`/`tvmaze_episode_details`) that hands the
+  model the real episode list; the model does the range/exclusion arithmetic
+  itself, then loops the existing per-episode search/add. Director-filmography
+  exclusions ("David Fincher films except Alien 3") work the same way via
+  `list_filmography` (`scripts/tmdb_id.py`'s `films_by_director`, Wikidata
+  `P57`/`P31=Q11424`) — no bespoke request parser either way.
+- **`imdb.expand()` splices, it doesn't replace.** A pasted link/id is
+  resolved and swapped in place, leaving the rest of the request text intact
+  — `tt14124236 get all S01 episodes except E01` keeps its instructions after
+  the id is resolved. Only a bare link (nothing else in the request) reduces
+  to the old full-replacement behaviour. Don't revert to whole-string
+  replacement, or every id-plus-instructions request silently loses the
+  instructions.
 
 ## Media server (CASAOS + Jellyfin)
 
@@ -225,6 +264,12 @@ definitions on its own service, no cron needed.
   directory alongside an old bare `Show Name/` gives Jellyfin two entries with
   the episodes split. Rename the remote directory first (ask before touching
   the user's library).
+- **Manga gets no tmdbid tag and no rename.** There's no TMDB-equivalent id
+  space for manga in this repo, so `torrent_agent/tidy.py`'s `_plan_manga`
+  routes the release to `[server.destinations].manga` under its original
+  release name rather than inventing a naming scheme, and
+  `server/pipeline.py` skips the Jellyfin scan for it — Jellyfin is a video
+  library and has nothing to match manga against.
 
 ## Conventions
 

@@ -78,6 +78,10 @@ ssh_key = ""         # e.g. "~/.ssh/id_rsa" — only needed for a remote host
 # flags (--film, --tv, ...). Point them wherever your library lives.
 # film = "/srv/media/film"
 # tv = "/srv/media/tv"
+# Manga has no TMDB/Wikidata id space and no TVmaze/tidy renaming — it's
+# delivered as-is, under its original release name (see torrent_agent/tidy.py
+# _plan_manga), and never scanned by Jellyfin.
+# manga = "/media/local/manga"
 
 [media_server]
 # "jellyfin", "emby" (same API and token header), or "none". Leave empty to

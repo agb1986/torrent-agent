@@ -43,6 +43,14 @@ def test_prowlarr_eztv_magnet_comes_from_guid(monkeypatch):
     assert results[0].magnet == f"magnet:?xt=urn:btih:{_HASH}"
 
 
+def test_manga_media_type_does_not_raise(monkeypatch):
+    # Regression guard: _CATEGORIES must have a "manga" entry, or this raises
+    # KeyError instead of searching unrestricted.
+    monkeypatch.setattr(search.requests, "get", _fake_get([]))
+    results = search._search_prowlarr("q", "manga", "http://localhost:9696", "key")
+    assert results == []
+
+
 def test_prowlarr_magnet_rebuilt_from_info_hash(monkeypatch):
     row = {
         "title": "Show S01E01 1080p",

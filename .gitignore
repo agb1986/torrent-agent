@@ -236,5 +236,9 @@ config.*.toml
 # ai-data-store artifact logging (local scratch, not shared)
 /tmp/
 
+# Durable failure log for doctor.py and the unattended services (bot/
+# notifier/sub/pfsync) — see torrent_agent/error_report.py.
+/error-report.json
+
 # Claude Code per-user settings (local approvals; not shared)
 .claude/settings.local.json
