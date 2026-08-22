@@ -32,6 +32,7 @@ from typing import Any
 
 from guessit import guessit
 
+from torrent_agent.error_report import record_error
 from torrent_agent.imdb import extract_id, show_by_imdb
 from torrent_agent.tidy import tvmaze_episode_details
 
@@ -399,8 +400,9 @@ class SubscriptionWatcher:
         while True:
             try:
                 self.tick()
-            except Exception:  # noqa: BLE001 - one bad show must not stop the rest
+            except Exception as exc:  # noqa: BLE001 - one bad show must not stop the rest
                 log.exception("subscription tick failed")
+                record_error("sub", "tick", str(exc))
             time.sleep(self.interval)
 
 

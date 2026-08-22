@@ -29,6 +29,7 @@ from typing import Any
 
 from torrent_agent.config import load_config
 from torrent_agent.deluge import DelugeError, fmt_size, list_torrents
+from torrent_agent.error_report import record_error
 
 from .runner import REPO_ROOT
 from .telegram import TelegramClient, TelegramError
@@ -127,10 +128,13 @@ class CompletionNotifier:
             outcome = run(row, self.config)
         except Exception as exc:  # never let one bad download stop the watcher
             log.exception("pipeline blew up")
+            record_error("pipeline", row["name"], str(exc))
             self._say(f"⚠️ {row['name']}: pipeline failed — {exc}\n\nLeft where it is.")
             return
         log.info("pipeline %s at %s: %s", "ok" if outcome.ok else "stopped",
                  outcome.stage, outcome.message)
+        if not outcome.ok:
+            record_error("pipeline", outcome.stage, outcome.message)
         self._say(format_outcome(outcome))
 
     def _say(self, text: str) -> None:
@@ -148,8 +152,9 @@ class CompletionNotifier:
                 # Deluge restarting, or the container bouncing. Not fatal —
                 # the next pass picks up whatever finished meanwhile.
                 log.warning("could not reach Deluge: %s", exc)
-            except Exception:
+            except Exception as exc:
                 log.exception("poll failed")
+                record_error("notifier", "poll", str(exc))
             time.sleep(self.interval)
 
 

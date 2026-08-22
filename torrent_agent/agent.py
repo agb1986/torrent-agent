@@ -8,46 +8,61 @@ removes a class of copy/paste errors.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 import anthropic
 
-from . import deluge, ranking, search
+from . import deluge, ranking, search, tidy
 from .config import anthropic_api_key
 from .vpn import binding_is_structural, tunnel_device, vpn_status
 
-_MAX_TURNS = 16
+# A season- or filmography-sized request is 2 turns per item (search + add)
+# plus the list_episodes/list_filmography lookup, so 16 was already tight for
+# "all episodes" before those tools existed.
+_MAX_TURNS = 30
 # Cap on results shown to the model. Kept generous so a "grab every episode"
 # request isn't silently truncated to whichever few episodes rank highest —
 # several releases per episode can otherwise crowd a whole season out of view.
 _TOP_N = 40
 
 SYSTEM_PROMPT = """\
-You are a torrent-fetching agent. Given a request (usually a TV show or movie),
-you find the best matching torrent and add it to the user's Deluge client.
+You are a torrent-fetching agent. Given a request (usually a TV show, movie,
+or manga), you find the best matching torrent(s) and add them to the user's
+Deluge client.
 
 Workflow:
-1. Call search_torrents with a clean query and the media_type ("tv", "movie",
-   or "any"). Results come back already ranked best-first.
-2. Pick the single best candidate. Ranking priorities, in order: resolution
+1. If the request names a range or exclusion within a show or filmography —
+   "all S01 except E01", "first 2 episodes of Father Ted S03", "all episodes",
+   a whole season — call list_episodes to get the show's real episode list,
+   work out which episodes the request actually means, then run steps 2-5
+   below per episode. For "David Fincher films except Alien 3" style
+   requests, call list_filmography instead and run steps 2-5 per film. Skip
+   this step for an ordinary single-item request.
+2. Call search_torrents with a clean query and the media_type ("tv", "movie",
+   "manga", or "any"). Results come back already ranked best-first.
+3. Pick the single best candidate. Ranking priorities, in order: resolution
    preference, preferred codec, seeders, recency. Prefer exact season/episode
    matches when the user asked for a specific one. Use judgment on the
    resolution/seeder trade-off: a well-seeded lower resolution beats a nearly
    dead higher one (e.g. 720p with hundreds of seeders over 1080p with 1-2).
+   Manga has no resolution or codec to rank on — for a whole-series request
+   prefer a complete volume/chapter-range archive over a single chapter, then
+   rank by seeders.
    If the request is for a whole show/season and no full series or season
    pack turns up, don't just report failure — search again per episode and
    add each one you find (same as if the user had said "all episodes").
    Only report nothing found if individual episodes also turn up empty.
-3. Before adding, the download must go through the VPN. Call check_vpn. If it is
+4. Before adding, the download must go through the VPN. Call check_vpn. If it is
    not active, DO NOT add the torrent — tell the user to start their VPN (PIA)
    first, then stop. (add_torrent also refuses when the VPN is down, as a guard.)
    If check_vpn reports deluge_bound_to_vpn as false, still proceed, but mention
    in your summary that Deluge is not bound to the tunnel and that running
    scripts/bind_vpn.py would protect downloads if the VPN drops.
-4. If the VPN is active, call add_torrent with the chosen result_id.
+5. If the VPN is active, call add_torrent with the chosen result_id.
 
-Be concise. State which release you chose and why (resolution / seeders / age),
-then report the outcome. If nothing good is found, say so plainly.
+Be concise. State which release(s) you chose and why (resolution / seeders /
+age), then report the outcome. If nothing good is found, say so plainly.
 """
 
 TOOLS: list[dict[str, Any]] = [
@@ -66,11 +81,59 @@ TOOLS: list[dict[str, Any]] = [
                 },
                 "media_type": {
                     "type": "string",
-                    "enum": ["tv", "movie", "any"],
+                    "enum": ["tv", "movie", "manga", "any"],
                     "description": "What kind of content this is.",
                 },
             },
             "required": ["query", "media_type"],
+        },
+    },
+    {
+        "name": "list_episodes",
+        "description": (
+            "Look up a TV show's episode list for one season (via TVmaze), "
+            "to resolve a range or exclusion in the request (e.g. 'all "
+            "except E01', 'first 2 episodes') into concrete episodes before "
+            "searching."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "show": {
+                    "type": "string",
+                    "description": "The show's title, e.g. 'Father Ted'.",
+                },
+                "season": {
+                    "type": "integer",
+                    "description": "Season number.",
+                },
+                "year": {
+                    "type": "integer",
+                    "description": (
+                        "Release/first-air year. Only needed to disambiguate "
+                        "a same-titled reboot or remake."
+                    ),
+                },
+            },
+            "required": ["show", "season"],
+        },
+    },
+    {
+        "name": "list_filmography",
+        "description": (
+            "Look up every film Wikidata has on record for a director, to "
+            "resolve an exclusion in the request (e.g. 'David Fincher films "
+            "except Alien 3') into concrete films before searching."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "director": {
+                    "type": "string",
+                    "description": "The director's name, e.g. 'David Fincher'.",
+                }
+            },
+            "required": ["director"],
         },
     },
     {
@@ -99,6 +162,15 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
 ]
+
+
+def _parse_airstamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 class TorrentAgent:
@@ -149,6 +221,57 @@ class TorrentAgent:
         if not out:
             return json.dumps({"results": [], "note": "No matching torrents found."})
         return json.dumps({"results": out})
+
+    def _tool_list_episodes(self, show: str, season: int, year: int | None = None) -> str:
+        found = tidy.tvmaze_show(show, year)
+        if not found:
+            return json.dumps({"error": f"No TVmaze match for {show!r}."})
+
+        details = tidy.tvmaze_episode_details(int(found["id"]))
+        now = datetime.now(timezone.utc)
+        episodes = []
+        for (s, n), meta in sorted(details.items()):
+            if s != season:
+                continue
+            stamp = _parse_airstamp(meta.get("airstamp"))
+            episodes.append(
+                {
+                    "season": s,
+                    "episode": n,
+                    "name": meta.get("name") or "",
+                    "airstamp": meta.get("airstamp"),
+                    "aired": bool(stamp and stamp <= now),
+                }
+            )
+        if not episodes:
+            return json.dumps(
+                {"error": f"{found.get('name', show)} has no season {season} on TVmaze."}
+            )
+        return json.dumps(
+            {"show": found.get("name", show), "season": season, "episodes": episodes}
+        )
+
+    def _tool_list_filmography(self, director: str) -> str:
+        # scripts/ is not a package; same dynamic-import pattern
+        # torrent_agent/imdb.py and torrent_agent/tidy.py already use.
+        import sys
+        from pathlib import Path
+
+        scripts = Path(__file__).resolve().parent.parent / "scripts"
+        if str(scripts) not in sys.path:
+            sys.path.insert(0, str(scripts))
+        try:
+            import tmdb_id
+        except ImportError as exc:  # pragma: no cover - packaging accident
+            return json.dumps({"error": f"could not load tmdb_id ({exc})"})
+
+        try:
+            films = tmdb_id.films_by_director(director)
+        except Exception as exc:  # noqa: BLE001 - surface as a tool error, not a crash
+            return json.dumps({"error": f"Wikidata lookup failed: {exc}"})
+        if not films:
+            return json.dumps({"error": f"No films found for director {director!r}."})
+        return json.dumps({"director": director, "films": films})
 
     def _tool_check_vpn(self) -> str:
         vpn_cfg = self.config.get("vpn", {})
@@ -242,6 +365,10 @@ class TorrentAgent:
             return self._tool_check_vpn()
         if name == "add_torrent":
             return self._tool_add_torrent(args["result_id"])
+        if name == "list_episodes":
+            return self._tool_list_episodes(args["show"], args["season"], args.get("year"))
+        if name == "list_filmography":
+            return self._tool_list_filmography(args["director"])
         return json.dumps({"error": f"Unknown tool '{name}'."})
 
     # --- main loop ------------------------------------------------------ #

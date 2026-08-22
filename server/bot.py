@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from torrent_agent.error_report import record_error
+
 from .runner import REPO_ROOT, AgentRunner, DailyCap
 from .telegram import TelegramClient, TelegramError
 
@@ -307,6 +309,7 @@ class Bot:
             log.exception("run blew up")
             self.record("error", chat_id=job.chat_id, user=job.user,
                         request=job.request, error=str(exc))
+            record_error("bot", job.request, str(exc))
             self.say(job.chat_id, f"Something went wrong: {exc}")
         finally:
             # Released in finally so a crash cannot wedge the queue — a bot

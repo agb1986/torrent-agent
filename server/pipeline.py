@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from torrent_agent import deluge
+from torrent_agent import ai_data_store, deluge
 from torrent_agent.deluge import DelugeError
 from torrent_agent.security import ClamAVUnavailable, clamav_scan
 from torrent_agent.tidy import TidyPlan, execute, plan_for
@@ -48,7 +48,7 @@ class Outcome:
 
 def _destination_for(kind: str, config: dict[str, Any]) -> str | None:
     dests = config.get("server", {}).get("destinations", {})
-    return dests.get("tv" if kind == "tv" else "film")
+    return dests.get(kind)
 
 
 def host_path(container_path: str, config: dict[str, Any]) -> str:
@@ -160,25 +160,37 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
         )
 
     # 6. Tell Jellyfin. Best-effort by design: the files have landed, so a
-    #    failed scan is a nuisance, not a lost download.
+    #    failed scan is a nuisance, not a lost download. Jellyfin is a video
+    #    library — a manga delivery has nothing for it to scan.
     landed = f"{dest}/{plan.root.name}"
-    # scan_jellyfin swallows its own errors and reports them on stdout, so
-    # watch the printed output rather than trusting the absence of an
-    # exception — otherwise the summary claims a scan that never happened.
     jellyfin_ok = True
-    try:
-        import io
-        from contextlib import redirect_stdout
+    if plan.kind in ("tv", "film"):
+        # scan_jellyfin swallows its own errors and reports them on stdout, so
+        # watch the printed output rather than trusting the absence of an
+        # exception — otherwise the summary claims a scan that never happened.
+        try:
+            import io
+            from contextlib import redirect_stdout
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            transfer.scan_jellyfin(landed)
-        printed = buf.getvalue()
-        print(printed, end="")
-        jellyfin_ok = "[WARN]" not in printed
-    except Exception as exc:  # noqa: BLE001 - never fail a delivered file
-        log.warning("Jellyfin scan failed: %s", exc)
-        jellyfin_ok = False
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                transfer.scan_jellyfin(landed)
+            printed = buf.getvalue()
+            print(printed, end="")
+            jellyfin_ok = "[WARN]" not in printed
+        except Exception as exc:  # noqa: BLE001 - never fail a delivered file
+            log.warning("Jellyfin scan failed: %s", exc)
+            jellyfin_ok = False
+
+    # The automated pipeline has no other artifact-writing analog — log_tidy.py
+    # is only invoked by the interactive tidy-files skill's manual pipe — so
+    # this is the only place an autodelivered item reaches ai-data-store.
+    ai_data_store.post_entry(
+        source="torrent-agent",
+        description=f"Tidied - {plan.name}",
+        keywords=["tidy-files", plan.kind],
+        data={"kind": plan.kind, "name": plan.name, "delivered_to": landed},
+    )
 
     return Outcome(
         True, "done", f"Delivered {plan.root.name}", plan=plan, delivered_to=landed,

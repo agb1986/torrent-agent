@@ -29,6 +29,14 @@ _TVMAZE = "https://api.tvmaze.com"
 # m.imdb.com, a share link with query junk on the end, or just "tt0995832".
 _IMDB_RE = re.compile(r"\b(tt\d{7,9})\b")
 
+# The full URL span, when there is one, so it can be replaced as a unit rather
+# than leaving "https://www.imdb.com/title/" scaffolding around a bare id
+# replacement. Only the id itself is required to match; the scheme/host/path
+# junk around it is not searchable text either way.
+_IMDB_URL_RE = re.compile(
+    r"https?://(?:www\.|m\.)?imdb\.com/title/tt\d{7,9}/?\S*", re.IGNORECASE
+)
+
 
 def extract_id(text: str) -> str | None:
     match = _IMDB_RE.search(text or "")
@@ -103,7 +111,7 @@ def resolve(imdb: str) -> dict | None:
 
 
 def expand(request: str) -> tuple[str, str | None]:
-    """Replace an IMDb id in `request` with a searchable title.
+    """Replace an IMDb id (or link) in `request` with a searchable title.
 
     Returns (request_to_search, note). The note is None when nothing was
     changed, so callers can stay quiet in the ordinary case.
@@ -111,6 +119,13 @@ def expand(request: str) -> tuple[str, str | None]:
     An id that resolves to nothing is left alone rather than stripped: the
     search will fail, but it fails with what the user actually typed, which is
     easier to make sense of than a silently emptied query.
+
+    Only the id/link *span* is replaced — anything else in the request is
+    left in place. A bare pasted link is the whole request, so this reduces to
+    the old full-replacement behaviour there; but "tt14124236 get all S01
+    episodes except E01" has instructions after the id that must survive, or
+    an episode-range request loses the range the moment it names a show by
+    link.
     """
     imdb = extract_id(request)
     if not imdb:
@@ -122,8 +137,12 @@ def expand(request: str) -> tuple[str, str | None]:
 
     title = str(found["name"])
     year = found.get("year")
-    # Everything around the id is dropped: a pasted URL is the whole request,
-    # and its path segments are not search terms.
-    query = f"{title} {year}" if year else title
+    replacement = f"{title} {year}" if year else title
     note = f"{title}" + (f" ({year}" if year else " (") + f", {found['kind']}) via {imdb}"
+
+    url_match = _IMDB_URL_RE.search(request)
+    id_match = _IMDB_RE.search(request)
+    start, end = url_match.span() if url_match else id_match.span()
+    query = request[:start] + replacement + request[end:]
+    query = re.sub(r"\s+", " ", query).strip()
     return query, note

@@ -99,3 +99,26 @@ def test_a_title_without_a_year_still_searches(monkeypatch):
     )
     query, _ = imdb.expand("tt1111111")
     assert query == "Some Show"
+
+
+def test_instructions_after_a_bare_id_survive(monkeypatch):
+    # Regression: an episode-range request ("all S01 except E01") named the
+    # show by id, and the old code discarded everything but the id, silently
+    # dropping the range along with it.
+    monkeypatch.setattr(
+        imdb, "_lookup_tv",
+        lambda i: {"kind": "tv", "name": "Foundation", "year": 2021},
+    )
+    query, _ = imdb.expand("tt14124236 get all S01 episodes except E01")
+    assert query == "Foundation 2021 get all S01 episodes except E01"
+
+
+def test_instructions_around_a_link_survive(monkeypatch):
+    monkeypatch.setattr(
+        imdb, "_lookup_tv",
+        lambda i: {"kind": "tv", "name": "Father Ted", "year": 1995},
+    )
+    query, _ = imdb.expand(
+        "first 2 episodes of https://www.imdb.com/title/tt0118401/ season 3"
+    )
+    assert query == "first 2 episodes of Father Ted 1995 season 3"

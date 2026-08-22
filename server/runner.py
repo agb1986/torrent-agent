@@ -176,7 +176,29 @@ class AgentRunner:
             tail = out.splitlines()[-8:] if out else ["(no output)"]
             return RunResult(ok=False, summary="Agent failed:\n" + "\n".join(tail))
 
-        return self._parse(out)
+        result = self._parse(out)
+        if result.added:
+            self._log_to_ai_data_store(result)
+        return result
+
+    @staticmethod
+    def _log_to_ai_data_store(result: RunResult) -> None:
+        """The unattended equivalent of the interactive get-torrents hook.
+
+        cli.py itself is shared by both the interactive Claude-Code-skill path
+        (already covered by log_artifact_entry.py's PostToolUse hook) and this
+        subprocess call — posting from cli.py would double-post for every
+        interactive /get. This is the unattended-only entry point.
+        """
+        from torrent_agent import ai_data_store
+
+        first = result.added[0]
+        ai_data_store.post_entry(
+            source="torrent-agent",
+            description=f"Added - {first.get('title')} ({first.get('resolution')})",
+            keywords=["get-torrents", "added"],
+            data={"artifact_path": result.artifact, "added": result.added},
+        )
 
     @staticmethod
     def _parse(out: str) -> RunResult:

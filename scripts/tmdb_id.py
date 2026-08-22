@@ -252,6 +252,90 @@ def wikidata_by_title(media_type: str, title: str) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# Source 3 — a director's filmography (Wikidata only; TMDB has no equivalent
+# "search by crew" endpoint coded anywhere in this repo)
+# --------------------------------------------------------------------------- #
+
+def _wikidata_person_qid(name: str) -> str | None:
+    """Best-guess QID for a person by name.
+
+    Unlike the title/imdb lookups above, there is no year or external id to
+    disambiguate with — a same-named-director collision returns the wrong
+    filmography, not a destructive action, so this picks the first plausible
+    match rather than refusing. Prefers a hit whose description reads like a
+    director over the plain best-ranked result.
+    """
+    search = _get_json(
+        "https://www.wikidata.org/w/api.php",
+        {
+            "action": "wbsearchentities",
+            "search": name,
+            "language": "en",
+            "format": "json",
+            "limit": "10",
+        },
+    )
+    hits = search.get("search", [])
+    if not hits:
+        return None
+    for hit in hits:
+        if "director" in (hit.get("description") or "").lower():
+            return hit["id"]
+    return hits[0]["id"]
+
+
+def _wikidata_films(qids: list[str]) -> list[dict]:
+    """Name and year for each of `qids`. No TMDB-id filter here — P57+P31 in
+    `films_by_director` already established these are films, and not every
+    film Wikidata knows carries a TMDB id (P4947)."""
+    if not qids:
+        return []
+    entities = _get_json(
+        "https://www.wikidata.org/w/api.php",
+        {
+            "action": "wbgetentities",
+            "ids": "|".join(qids),
+            "props": "claims|labels",
+            "languages": "en",
+            "format": "json",
+        },
+    ).get("entities", {})
+
+    films = []
+    for qid in qids:  # preserve search ranking
+        entity = entities.get(qid, {})
+        name = entity.get("labels", {}).get("en", {}).get("value")
+        if not name:
+            continue
+        films.append({"name": name, "year": _entity_year(entity, "movie")})
+    return films
+
+
+def films_by_director(name: str) -> list[dict]:
+    """Every film Wikidata has on record with `name` credited as director.
+
+    Same CirrusSearch `haswbstatement:` idiom as `wikidata_by_imdb` — P57
+    (director) combined with P31=Q11424 (instance of film) so a director's TV
+    work or acting credits don't leak into the result.
+    """
+    qid = _wikidata_person_qid(name)
+    if not qid:
+        return []
+    search = _get_json(
+        "https://www.wikidata.org/w/api.php",
+        {
+            "action": "query",
+            "list": "search",
+            "srsearch": f"haswbstatement:P57={qid} haswbstatement:P31=Q11424",
+            "srlimit": "50",
+            "format": "json",
+        },
+    )
+    qids = [hit["title"] for hit in search.get("query", {}).get("search", [])]
+    return _wikidata_films(qids)
+
+
+# --------------------------------------------------------------------------- #
 # Picking a winner
 # --------------------------------------------------------------------------- #
 

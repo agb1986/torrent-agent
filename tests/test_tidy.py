@@ -204,6 +204,46 @@ def test_no_media_files_is_escalated(tmp_path):
     assert any("no media files" in p for p in plan.problems)
 
 
+# --- manga ------------------------------------------------------------------
+
+
+def test_a_manga_release_is_routed_without_renaming(tmp_path):
+    src = tmp_path / "[Group] One Piece v01-v10 [Complete]"
+    src.mkdir()
+    (src / "One Piece v01.cbz").write_bytes(b"\0" * 1024)
+    (src / "One Piece v02.cbz").write_bytes(b"\0" * 1024)
+
+    plan = tidy.plan_for(src)
+
+    assert plan.confident, plan.problems
+    assert plan.kind == "manga"
+    assert plan.root == src
+    assert plan.moves == []  # nothing renamed — transfer moves it as one unit
+
+
+def test_a_single_manga_file_is_routed(tmp_path):
+    src = tmp_path / "One Piece v01.cbz"
+    src.write_bytes(b"\0" * 1024)
+
+    plan = tidy.plan_for(src)
+
+    assert plan.confident, plan.problems
+    assert plan.kind == "manga"
+    assert plan.root == src
+
+
+def test_a_directory_with_no_media_and_no_manga_is_still_escalated(tmp_path):
+    # Regression guard: the manga fallback must not swallow the genuine
+    # "nothing recognisable here" case.
+    src = tmp_path / "empty"
+    src.mkdir()
+    (src / "readme.txt").write_text("nothing here")
+
+    plan = tidy.plan_for(src)
+    assert not plan.confident
+    assert plan.kind == "unknown"
+
+
 # --- execution ------------------------------------------------------------
 
 

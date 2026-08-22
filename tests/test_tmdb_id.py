@@ -166,3 +166,56 @@ def test_resolve_raises_when_every_source_fails(monkeypatch):
 def test_resolve_returns_nothing_when_no_source_matches(monkeypatch):
     monkeypatch.setattr(tmdb_id, "wikidata_by_title", lambda *a, **k: [])
     assert tmdb_id.resolve("movie", "Zzqq Not A Real Film", None) == (None, [])
+
+
+# --------------------------------------------------------------------------- #
+# Director filmography
+# --------------------------------------------------------------------------- #
+
+def test_person_qid_prefers_a_hit_described_as_a_director(monkeypatch):
+    # A common name can collide with someone else on Wikidata; the
+    # description is the only signal available to break the tie.
+    hits = {
+        "search": [
+            {"id": "Q1", "description": "American baseball player"},
+            {"id": "Q2", "description": "American film director"},
+        ]
+    }
+    monkeypatch.setattr(tmdb_id, "_get_json", lambda *a, **k: hits)
+    assert tmdb_id._wikidata_person_qid("David Fincher") == "Q2"
+
+
+def test_person_qid_falls_back_to_the_first_hit(monkeypatch):
+    hits = {"search": [{"id": "Q1", "description": "something else entirely"}]}
+    monkeypatch.setattr(tmdb_id, "_get_json", lambda *a, **k: hits)
+    assert tmdb_id._wikidata_person_qid("Obscure Person") == "Q1"
+
+
+def test_person_qid_is_none_with_no_hits(monkeypatch):
+    monkeypatch.setattr(tmdb_id, "_get_json", lambda *a, **k: {"search": []})
+    assert tmdb_id._wikidata_person_qid("Nobody") is None
+
+
+def test_films_by_director_filters_out_entities_with_no_label(monkeypatch):
+    entities = {
+        "Q10": _entity(label="Se7en", dates={"P577": ["+1995-09-22T00:00:00Z"]}),
+        "Q11": {"claims": {}, "labels": {}},  # no English label — dropped
+    }
+    monkeypatch.setattr(tmdb_id, "_wikidata_person_qid", lambda name: "Qdirector")
+
+    # _get_json takes (url, params); both calls share the same url, so
+    # dispatch on the "action" param instead.
+    def fake_get_json(url, params):
+        if params.get("action") == "query":
+            return {"query": {"search": [{"title": "Q10"}, {"title": "Q11"}]}}
+        return {"entities": entities}
+
+    monkeypatch.setattr(tmdb_id, "_get_json", fake_get_json)
+
+    films = tmdb_id.films_by_director("David Fincher")
+    assert films == [{"name": "Se7en", "year": 1995}]
+
+
+def test_films_by_director_returns_empty_when_no_person_found(monkeypatch):
+    monkeypatch.setattr(tmdb_id, "_wikidata_person_qid", lambda name: None)
+    assert tmdb_id.films_by_director("Nobody At All") == []

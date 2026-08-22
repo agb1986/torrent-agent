@@ -23,8 +23,10 @@ _TRACKERS = (
     "udp://tracker.torrent.eu.org:451/announce",
 )
 
-# Prowlarr/Newznab category roots.
-_CATEGORIES = {"tv": [5000], "movie": [2000], "any": []}
+# Prowlarr/Newznab category roots. "manga" is left unrestricted: nyaa.si's
+# own Prowlarr category mapping isn't something this repo controls or should
+# guess at, and a wrong id would just silently return nothing.
+_CATEGORIES = {"tv": [5000], "movie": [2000], "manga": [], "any": []}
 
 _TIMEOUT = 20
 
@@ -199,7 +201,7 @@ def _dedupe(results: list[TorrentResult]) -> list[TorrentResult]:
 def search(query: str, media_type: str, config: dict[str, Any]) -> list[TorrentResult]:
     """Search using the configured backend.
 
-    media_type is one of "tv", "movie", or "any". With ``backend = "auto"`` both
+    media_type is one of "tv", "movie", "manga", or "any". With ``backend = "auto"`` both
     Prowlarr (if configured) and apibay/TPB are queried and merged, so an episode
     that is dead on one indexer can still be found, well-seeded, on the other.
     """
