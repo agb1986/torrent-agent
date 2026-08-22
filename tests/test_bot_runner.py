@@ -78,6 +78,32 @@ def test_parse_survives_a_corrupt_artifact(tmp_path):
     assert result.summary == "Added: something"
 
 
+def test_parse_finds_the_artifact_even_when_not_the_first_line(tmp_path):
+    # Regression: an IMDb-link request has cli.py print an "IMDb: ..." note
+    # to stderr before the artifact path, which lands ahead of it once
+    # stderr is merged into the same stream. The old lines[0]-only check
+    # missed the artifact entirely, leaking its raw path into the summary
+    # and leaving result.added empty despite a real, successful add.
+    artifact = tmp_path / "added_frasier.json"
+    artifact.write_text(json.dumps({
+        "request": "Frasier 2023 get all S01 episodes except E01",
+        "added": [{"title": "Frasier S01E02", "torrent_id": "aa11"}],
+    }))
+    out = (
+        "IMDb: Frasier (2023, tv) via tt14124236\n"
+        f"{artifact}\n"
+        "Added all 9 episodes (S01E02–E10, skipping E01 as asked)."
+    )
+
+    result = AgentRunner._parse(out)
+
+    assert result.artifact == str(artifact)
+    assert result.torrent_ids == ["aa11"]
+    # The note stays — only the raw artifact path is stripped out.
+    assert "IMDb: Frasier" in result.summary
+    assert str(artifact) not in result.summary
+
+
 def test_parse_collects_every_torrent_id_from_a_multi_add(tmp_path):
     artifact = tmp_path / "added_many.json"
     artifact.write_text(json.dumps({"added": [
