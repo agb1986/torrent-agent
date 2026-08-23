@@ -123,6 +123,23 @@ min_ratio = 1.0
 # makes it pointless, but is the safe way to watch it run once.
 delete_data = true
 
+[replace]
+# python -m torrent_agent.replace (or the bot's /replace) removes torrents
+# that are never going to finish and re-fetches each from a different
+# source, a quality downgrade allowed. On-demand only — no timer, no
+# `enabled` gate, since nothing runs unless you invoke it.
+#   python -m torrent_agent.replace --dry-run   (lists candidates, touches nothing)
+#
+# Grace period since a torrent was added before it can be judged stalled —
+# a fresh torrent still finding peers is not a lost cause.
+stall_minutes = 30
+# Below this many bytes/sec counts as "no meaningful transfer", not literally
+# zero — a dead torrent still reports a byte or two of protocol chatter.
+rate_threshold_bytes = 1024
+# Don't touch something this close to done — let it finish rather than
+# restarting from zero on a lower-quality replacement.
+near_complete_progress = 95.0
+
 [jellyfin.path_map]
 # Server path -> path inside the Jellyfin container (its bind mounts). These
 # are per-install, so there is no default. Jellyfin mounts each library

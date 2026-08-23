@@ -200,6 +200,51 @@ class AgentRunner:
             data={"artifact_path": result.artifact, "added": result.added},
         )
 
+    def replace(self) -> RunResult:
+        """Swap out stalled torrents, one `self.run()` per replacement.
+
+        Detection and removal are direct Deluge calls — cheap, no model
+        involved. Each replacement then goes through the exact same
+        subprocess path `/get` uses, so it pays the same DailyCap claim and
+        gets the same isolation. `self.run()` already turns a spent cap into
+        an ok=False RunResult; that is treated as "stop", since every
+        remaining candidate would fail the same way.
+        """
+        from torrent_agent import replace as replace_mod
+        from torrent_agent.config import load_config
+        from torrent_agent.deluge import DelugeError
+
+        config = load_config(self.config_path)
+        try:
+            candidates = replace_mod.find_lost_causes(config)
+        except DelugeError as exc:
+            return RunResult(ok=False, summary=f"Could not reach Deluge: {exc}")
+
+        if not candidates:
+            return RunResult(ok=True, summary="No stalled torrents found.")
+
+        parts: list[str] = []
+        added: list[dict[str, Any]] = []
+        for c in candidates:
+            query = replace_mod.replacement_query(c["name"])
+            if query is None:
+                parts.append(f"• {c['name']}: could not read a title, left alone.")
+                continue
+            text, _media_type = query
+            try:
+                replace_mod.remove_lost_cause(c["id"], config)
+            except DelugeError as exc:
+                parts.append(f"• {c['name']}: could not remove ({exc}).")
+                continue
+
+            result = self.run(text + replace_mod.DOWNGRADE_NOTE)
+            parts.append(f"• {c['name']} -> {text}:\n  {result.summary}")
+            added.extend(result.added)
+            if not result.ok and "Daily limit" in result.summary:
+                break
+
+        return RunResult(ok=True, summary="\n\n".join(parts), added=added)
+
     @staticmethod
     def _parse(out: str) -> RunResult:
         """Read the run's JSON artifact rather than scraping the prose.

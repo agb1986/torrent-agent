@@ -112,8 +112,18 @@ start the VPN first — it will not add the download.
 ## Remote control (Telegram)
 
 `server/` is a long-polling Telegram bot, so it needs no inbound port and works
-behind NAT. Three commands: `/get <title or IMDb link>`, `/status` (the live
-Deluge session), `/cancel`.
+behind NAT. Commands: `/get <title or IMDb link>`, `/replace` (swap out
+stalled, seederless torrents for a different source — quality downgrade OK),
+`/status` (the live Deluge session), `/cancel`.
+
+`/replace`, or `python -m torrent_agent.replace` on the command line, looks at
+what Deluge is running, picks out torrents that are stalled (no seeders, no
+transfer, past a grace period, not already near done — see `[replace]` in
+`config.example.toml`), removes them (data included — a stalled torrent's
+partial bytes are worthless to a fresh search), and re-fetches each through
+the same search → rank → check_vpn → add_torrent path `/get` uses, just told
+that a lower resolution than usual is fine this time. `--dry-run` lists
+candidates without touching anything.
 
 ```bash
 cp .env.bot.example .env.bot && chmod 600 .env.bot   # token + allowlist
@@ -251,8 +261,9 @@ installed.
 | `torrent_agent/config.py`  | defaults ← `config.toml` ← env |
 | `torrent_agent/imdb.py`    | IMDb link or `tt…` id → searchable title and year |
 | `torrent_agent/tidy.py`    | plan a rename, and refuse when anything is unclear |
+| `torrent_agent/replace.py` | find stalled torrents, remove them, re-fetch from a different source |
 | `torrent_agent/cli.py`     | entrypoint |
-| `server/bot.py` | Telegram bot: `/get`, `/status`, `/cancel` |
+| `server/bot.py` | Telegram bot: `/get`, `/replace`, `/status`, `/cancel` |
 | `server/sub.py` | follow a running series; fetch episodes as they air |
 | `server/notifier.py` | watch for finished downloads; announce or deliver |
 | `server/pipeline.py` | finished → out of Deluge → tidy → deliver → Jellyfin |

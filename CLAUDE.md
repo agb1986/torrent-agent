@@ -56,7 +56,7 @@ Units live in `deploy/systemd/`, and their paths assume
 
 | Unit | Does |
 |---|---|
-| `bot` | Telegram: `/get`, `/status`, `/cancel`, `/sub` |
+| `bot` | Telegram: `/get`, `/replace`, `/status`, `/cancel`, `/sub` |
 | `notifier` | Watches Deluge; announces completions, and with `TORRENT_AGENT_AUTODELIVER=1` runs the whole delivery pipeline |
 | `sub` | Reconciles followed series — fetches episodes as they air |
 | `pfsync` | Keeps Deluge's listen port on gluetun's rotating forwarded port |

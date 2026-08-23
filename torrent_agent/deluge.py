@@ -231,6 +231,10 @@ TORRENT_FIELDS = [
     # Where the files actually are — the automated pipeline needs the path,
     # not just the name, and it differs between hosts.
     "save_path",
+    # Unix timestamp. `replace` needs this to give a freshly-added torrent a
+    # grace period before judging it stalled — progress and rate alone can't
+    # tell "just started" from "long dead".
+    "time_added",
 ]
 
 # Active work first, so the interesting rows lead in any view.
@@ -289,6 +293,7 @@ def list_torrents(config: dict[str, Any]) -> list[dict[str, Any]]:
                 "size": float(info.get("total_wanted", 0)),
                 "seeds": int(info.get("num_seeds", 0)),
                 "peers": int(info.get("total_peers", 0)),
+                "time_added": int(info.get("time_added", 0)),
             }
         )
     rows.sort(key=lambda r: (_STATE_ORDER.get(r["state"], 9), r["name"].lower()))

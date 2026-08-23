@@ -197,3 +197,110 @@ def test_request_is_passed_as_one_argv_entry(tmp_path):
 def test_run_result_torrent_ids_tolerates_missing_field():
     result = RunResult(ok=True, summary="x", added=[{"title": "no id here"}])
     assert result.torrent_ids == [""]
+
+
+# --- replace ----------------------------------------------------------------
+# .replace() must reuse .run() for every actual fetch — same subprocess
+# isolation and DailyCap claim as /get — so these override .run() rather than
+# mocking Popen, and stub torrent_agent.replace's Deluge-facing calls so no
+# real daemon is needed.
+
+
+class RecordingRunner(AgentRunner):
+    def __init__(self, *args, responses=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.run_calls: list[str] = []
+        self._responses = list(responses or [])
+
+    def run(self, request):
+        self.run_calls.append(request)
+        if self._responses:
+            return self._responses.pop(0)
+        return RunResult(ok=True, summary="Added: something",
+                          added=[{"title": "x", "torrent_id": "t1"}])
+
+
+def test_replace_removes_then_refetches_each_candidate(tmp_path, monkeypatch):
+    import torrent_agent.config as config_mod
+    import torrent_agent.replace as replace_mod
+
+    candidates = [
+        {"id": "a1", "name": "Some.Show.S01E01.1080p.WEB.h264-GRP.mkv"},
+        {"id": "a2", "name": "Some.Movie.2020.1080p.BluRay.x264-GRP.mkv"},
+    ]
+    removed: list[str] = []
+    monkeypatch.setattr(replace_mod, "find_lost_causes", lambda cfg: candidates)
+    monkeypatch.setattr(
+        replace_mod, "remove_lost_cause", lambda tid, cfg: removed.append(tid)
+    )
+    monkeypatch.setattr(config_mod, "load_config", lambda path: {})
+
+    r = RecordingRunner(cap=DailyCap(10, tmp_path / "cap.json"), repo_root=tmp_path)
+    result = r.replace()
+
+    assert removed == ["a1", "a2"]
+    assert r.run_calls[0].startswith("Some Show S01E01")
+    assert r.run_calls[1].startswith("Some Movie 2020")
+    assert "downgrade" not in r.run_calls[0].lower()  # note is prose, not a flag
+    assert replace_mod.DOWNGRADE_NOTE in r.run_calls[0]
+    assert result.ok
+    assert len(result.added) == 2  # one per successful refetch
+
+
+def test_replace_with_no_candidates_never_calls_run(tmp_path, monkeypatch):
+    import torrent_agent.config as config_mod
+    import torrent_agent.replace as replace_mod
+
+    monkeypatch.setattr(replace_mod, "find_lost_causes", lambda cfg: [])
+    monkeypatch.setattr(config_mod, "load_config", lambda path: {})
+
+    r = RecordingRunner(cap=DailyCap(10, tmp_path / "cap.json"), repo_root=tmp_path)
+    result = r.replace()
+
+    assert r.run_calls == []
+    assert result.ok
+    assert "No stalled" in result.summary
+
+
+def test_replace_skips_a_candidate_with_no_readable_title(tmp_path, monkeypatch):
+    import torrent_agent.config as config_mod
+    import torrent_agent.replace as replace_mod
+
+    monkeypatch.setattr(
+        replace_mod, "find_lost_causes",
+        lambda cfg: [{"id": "a1", "name": "S01E01.mkv"}],
+    )
+    monkeypatch.setattr(config_mod, "load_config", lambda path: {})
+    removed = []
+    monkeypatch.setattr(
+        replace_mod, "remove_lost_cause", lambda tid, cfg: removed.append(tid)
+    )
+
+    r = RecordingRunner(cap=DailyCap(10, tmp_path / "cap.json"), repo_root=tmp_path)
+    result = r.replace()
+
+    assert removed == []          # never removed — nothing to search for instead
+    assert r.run_calls == []
+    assert "could not read a title" in result.summary
+
+
+def test_replace_stops_once_the_daily_cap_is_exhausted(tmp_path, monkeypatch):
+    import torrent_agent.config as config_mod
+    import torrent_agent.replace as replace_mod
+
+    candidates = [
+        {"id": "a1", "name": "Show.One.S01E01.1080p.WEB.h264-GRP.mkv"},
+        {"id": "a2", "name": "Show.Two.S01E01.1080p.WEB.h264-GRP.mkv"},
+    ]
+    monkeypatch.setattr(replace_mod, "find_lost_causes", lambda cfg: candidates)
+    monkeypatch.setattr(replace_mod, "remove_lost_cause", lambda tid, cfg: None)
+    monkeypatch.setattr(config_mod, "load_config", lambda path: {})
+
+    r = RecordingRunner(
+        cap=DailyCap(10, tmp_path / "cap.json"), repo_root=tmp_path,
+        responses=[RunResult(ok=False, summary="Daily limit of 10 requests reached.")],
+    )
+    result = r.replace()
+
+    assert len(r.run_calls) == 1, "must not keep trying once the cap is spent"
+    assert result.ok  # the overall job still reports — the summary carries the stop

@@ -37,6 +37,8 @@ USAGE = (
     "Commands:\n"
     "  /get <title>  — find a torrent and add it to Deluge\n"
     "                (an IMDb link works too)\n"
+    "  /replace      — swap out stalled, seederless torrents for a\n"
+    "                different source (quality downgrade OK)\n"
     "  /status       — what the bot is doing right now\n"
     "  /cancel       — stop the current run and clear the queue\n"
     "  /sub <imdb>   — follow a running series; new episodes fetch themselves\n"
@@ -50,6 +52,10 @@ class Job:
     chat_id: int
     user: str
     request: str
+    # "get" runs request through the agent as-is. "replace" ignores request
+    # and instead finds and replaces stalled torrents — request is kept as a
+    # human-readable label for /status and the audit log.
+    kind: str = "get"
 
 
 # Telegram renders in a proportional font, so column alignment is wasted
@@ -176,6 +182,8 @@ class Bot:
 
         if command == "/get":
             self.cmd_get(chat_id, who, argument)
+        elif command == "/replace":
+            self.cmd_replace(chat_id, who)
         elif command == "/status":
             self.cmd_status(chat_id)
         elif command == "/cancel":
@@ -213,6 +221,25 @@ class Bot:
             self.say(chat_id, f"Queued — {depth} ahead of it. Working through them.")
         else:
             self.say(chat_id, f"Looking for: {request}")
+
+    def cmd_replace(self, chat_id: int, who: str) -> None:
+        remaining = self.runner.cap.remaining()
+        if remaining <= 0:
+            self.record("cap_refused", chat_id=chat_id, user=who, request="replace")
+            self.say(
+                chat_id,
+                f"Daily limit of {self.runner.cap.limit} requests already reached. "
+                f"Nothing sent to the API.",
+            )
+            return
+
+        self.jobs.put(Job(chat_id=chat_id, user=who, request="replace", kind="replace"))
+        self.record("queued", chat_id=chat_id, user=who, request="replace")
+        depth = self.jobs.qsize()
+        if self.current is not None or depth > 1:
+            self.say(chat_id, f"Queued — {depth} ahead of it. Working through them.")
+        else:
+            self.say(chat_id, "Looking for stalled torrents to replace…")
 
     def cmd_sub(self, chat_id: int, who: str, argument: str) -> None:
         """Manage subscriptions. Cheap enough to answer inline.
@@ -295,7 +322,7 @@ class Bot:
     def work_once(self, job: Job) -> None:
         self.current = job
         try:
-            result = self.runner.run(job.request)
+            result = self.runner.replace() if job.kind == "replace" else self.runner.run(job.request)
             self.record(
                 "completed" if result.ok else "failed",
                 chat_id=job.chat_id,

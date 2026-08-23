@@ -97,6 +97,18 @@ DEFAULTS: dict[str, Any] = {
         # makes the whole thing pointless, but is the safe first run.
         "delete_data": True,
     },
+    # `replace` swaps out torrents that are never going to finish. A candidate
+    # must be past the grace period (freshly-added torrents still finding
+    # peers are not lost causes) and show no sign of life.
+    "replace": {
+        "stall_minutes": 30,
+        # Below this counts as "no meaningful transfer", not literally zero —
+        # Deluge reports a byte or two of protocol chatter on a dead torrent.
+        "rate_threshold_bytes": 1024,
+        # Don't touch something this close to done — let it finish rather than
+        # restarting from zero on a lower-quality replacement.
+        "near_complete_progress": 95.0,
+    },
 }
 
 

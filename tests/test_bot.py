@@ -29,10 +29,14 @@ class FakeClient:
 class FakeRunner:
     """Stands in for AgentRunner. Records every invocation."""
 
-    def __init__(self, cap, result=None, block=None):
+    def __init__(self, cap, result=None, block=None, replace_result=None):
         self.cap = cap
         self.calls: list[str] = []
         self.result = result or RunResult(ok=True, summary="Added: something")
+        self.replace_result = replace_result or RunResult(
+            ok=True, summary="No stalled torrents found."
+        )
+        self.replace_calls = 0
         self.block = block          # optional Event to hold the run open
         self.started = threading.Event()
         self.cancelled = False
@@ -45,6 +49,15 @@ class FakeRunner:
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
+
+    def replace(self):
+        self.replace_calls += 1
+        self.started.set()
+        if self.block is not None:
+            self.block.wait(timeout=5)
+        if isinstance(self.replace_result, Exception):
+            raise self.replace_result
+        return self.replace_result
 
     def cancel(self):
         self.cancelled = True
@@ -124,6 +137,37 @@ def test_bare_get_asks_for_a_title(tmp_path):
     bot.handle_update(message(42, "/get"))
     assert bot.jobs.qsize() == 0
     assert "What should I fetch?" in client.texts_for(42)[0]
+
+
+def test_replace_queues_a_replace_kind_job(tmp_path):
+    bot, client, runner = make_bot(tmp_path)
+    bot.handle_update(message(42, "/replace"))
+    assert bot.jobs.qsize() == 1
+    job = list(bot.jobs.queue)[0]
+    assert job.kind == "replace"
+    assert "stalled" in client.texts_for(42)[0].lower()
+
+
+def test_replace_respects_the_daily_cap(tmp_path):
+    bot, client, runner = make_bot(tmp_path, limit=1)
+    runner.cap.claim()
+    bot.handle_update(message(42, "/replace"))
+    assert bot.jobs.qsize() == 0
+    assert "Daily limit" in client.texts_for(42)[-1]
+
+
+def test_replace_job_calls_runner_replace_not_run(tmp_path):
+    result = RunResult(ok=True, summary="• Show S01E01 -> Show S01E01:\n  Added: something")
+    cap = DailyCap(limit=10, state_path=tmp_path / "cap.json")
+    runner = FakeRunner(cap, replace_result=result)
+    bot, client, _ = make_bot(tmp_path, runner=runner)
+
+    bot.work_once(Job(chat_id=42, user="me", request="replace", kind="replace"))
+
+    assert runner.replace_calls == 1
+    assert runner.calls == []      # .run() must not be called directly by the bot
+    assert "Show S01E01" in client.texts_for(42)[-1]
+    assert [e["event"] for e in audit(bot)] == ["completed"]
 
 
 def test_group_style_command_suffix_is_stripped(tmp_path):
