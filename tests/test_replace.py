@@ -138,6 +138,24 @@ def test_a_season_pack_becomes_a_season_query():
     assert query == ("Some Show S02", "tv")
 
 
+def test_an_episode_with_a_year_keeps_it_in_the_query():
+    """Regression: a stalled "Frasier.2023.S01E07..." replaced without the
+    year searched plain "Frasier S01E07" — ambiguous between the 2023 reboot
+    and the 1993 original — and fetched the wrong show's episode of the same
+    number. The year is the only thing that disambiguates a same-titled
+    reboot/remake, same as `tidy.tvmaze_show`'s year matching.
+    """
+    query = replace.replacement_query(
+        "Frasier.2023.S01E07.1080p.HEVC.x265-MeGusta.mkv"
+    )
+    assert query == ("Frasier 2023 S01E07", "tv")
+
+
+def test_a_season_pack_with_a_year_keeps_it_too():
+    query = replace.replacement_query("Frasier.2023.S02.1080p.x265-ELiTE")
+    assert query == ("Frasier 2023 S02", "tv")
+
+
 def test_a_movie_becomes_a_title_and_year_query():
     query = replace.replacement_query("Some.Movie.2020.1080p.BluRay.x264-GRP")
     assert query == ("Some Movie 2020", "movie")

@@ -92,21 +92,28 @@ def replacement_query(name: str) -> tuple[str, str] | None:
     if not title:
         return None
 
+    year = guess.get("year")
+    base = f"{title} {year}" if year else title
+
     kind = guess.get("type")
     if kind == "movie":
-        year = guess.get("year")
-        return (f"{title} {year}" if year else title), "movie"
+        return base, "movie"
 
     if kind == "episode":
+        # The year is the only thing that tells a same-titled reboot/remake
+        # apart (the "Frasier" bug, again: dropping it here once let a stalled
+        # 2023-reboot episode search resolve to the 1993 original's episode of
+        # the same number instead). Carry it through exactly as the movie
+        # branch does whenever guessit found one in the release name.
         season = guess.get("season")
         episode = guess.get("episode")
         if isinstance(episode, list):  # "S01E01E02"-style multi-episode file
             episode = episode[0] if episode else None
         if isinstance(season, int) and isinstance(episode, int):
-            return f"{title} S{season:02d}E{episode:02d}", "tv"
+            return f"{base} S{season:02d}E{episode:02d}", "tv"
         if isinstance(season, int):
-            return f"{title} S{season:02d}", "tv"
-        return title, "tv"
+            return f"{base} S{season:02d}", "tv"
+        return base, "tv"
 
     return None
 
