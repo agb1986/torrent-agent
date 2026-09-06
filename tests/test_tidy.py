@@ -264,3 +264,134 @@ def test_execute_moves_files_into_place(tmp_path, tv_lookups):
     landed = plan.root / "Season 01" / "S01E01 - Get Some.mkv"
     assert landed.exists()
     assert not (src / "Generation Kill E01 Get Some.mkv").exists()
+
+
+# --- absolute (anime) episode numbering ------------------------------------
+
+
+@pytest.fixture
+def anime_lookups(monkeypatch):
+    """A long-running show TVmaze numbers by broadcast year, as it does anime."""
+    episodes = {(year, n): f"Ep {year}-{n}" for year in (2023, 2024, 2025)
+                for n in range(1, 61)}
+
+    def _install(name="Long Show", show_id=1505):
+        monkeypatch.setattr(
+            tidy, "tvmaze_show",
+            lambda title, year=None: {"id": show_id, "name": name,
+                                      "premiered": "1999-10-20", "externals": {}},
+        )
+        monkeypatch.setattr(tidy, "tvmaze_episodes", lambda sid: episodes)
+        monkeypatch.setattr(
+            tidy, "_resolve_tmdb", lambda mt, t, y, imdb: ("37854", name, 1999, ""),
+        )
+        return episodes
+
+    return _install
+
+
+def test_absolute_episode_numbers_map_through_broadcast_order(tmp_path, anime_lookups):
+    """Anime ships "Show - 145 - Title", not S2025E25.
+
+    guessit has no concept of absolute numbering and splits that token into
+    season 1, episode 45 — which resolves against no show. Before this was
+    handled every file in a pack failed the lookup, so five One Piece Egghead
+    Island packs downloaded overnight and every one escalated instead of
+    filing, for 74GB of downloads nobody could watch.
+    """
+    anime_lookups()
+    src = tmp_path / "Long Show (Arc 145-146) - 2160p"
+    _mk(src / "Long Show - 145 - The Winner Takes All - 2160p.mkv")
+    _mk(src / "Long Show - 146 - A Forbidden Piece of History - 2160p.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert plan.confident, plan.problems
+    # 145th episode overall: seasons 2023 and 2024 hold 60 each, so 2025 #25.
+    assert [m.target.name for m in plan.moves] == [
+        "S2025E25 - Ep 2025-25.mkv",
+        "S2025E26 - Ep 2025-26.mkv",
+    ]
+    assert plan.moves[0].target.parent.name == "Season 2025"
+
+
+def test_round_absolute_numbers_are_not_lost_to_a_zero_episode(tmp_path, anime_lookups):
+    """"100" splits into season 1, episode 0 — a number, but a falsy one."""
+    anime_lookups()
+    src = tmp_path / "Long Show"
+    _mk(src / "Long Show - 100 - The Winner Takes All - 2160p.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert plan.confident, plan.problems
+    assert plan.moves[0].target.name == "S2024E40 - Ep 2024-40.mkv"
+
+
+def test_a_point_five_recap_is_left_in_place_rather_than_colliding(tmp_path, anime_lookups):
+    """"145.5" is anime's recap convention, and it rounds onto episode 145.
+
+    Claiming it would file two different files as the same episode. It is not a
+    failure either — refusing the whole pack over a recap would strand every
+    real episode with it — so it is reported and left behind.
+    """
+    anime_lookups()
+    src = tmp_path / "Long Show"
+    _mk(src / "Long Show - 145 - The Winner Takes All - 2160p.mkv")
+    _mk(src / "Long Show - 145.5 - A Special Recap - 2160p.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert plan.confident, plan.problems
+    assert [m.target.name for m in plan.moves] == ["S2025E25 - Ep 2025-25.mkv"]
+    assert any("recap special" in n for n in plan.notes)
+    assert any(p.name.endswith("145.5 - A Special Recap - 2160p.mkv") for p in plan.left_behind)
+
+
+def test_an_explicit_season_episode_never_becomes_an_absolute_number(tmp_path, tv_lookups):
+    """S02E05 must not be rebuilt into absolute 205 when TVmaze lacks it.
+
+    The absolute reader works by rejoining the digits guessit split apart, so
+    it has to prove those digits really appear as one number in the name —
+    otherwise a missing episode silently maps onto an unrelated one instead of
+    escalating.
+    """
+    tv_lookups(episodes={(2, n): f"Ep {n}" for n in range(1, 100) if n != 5})
+    src = tmp_path / "Generation Kill"
+    _mk(src / "Generation Kill S02E05 Missing.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert not plan.confident
+    assert any("S02E05" in p for p in plan.problems)
+
+
+def test_a_shared_title_is_settled_by_which_show_the_files_fit(tmp_path, monkeypatch):
+    """Two shows named "One Piece": the 1999 anime and the 2023 live-action.
+
+    They score identically on TVmaze and the live-action comes back first, and
+    anime releases carry no year to disambiguate on — so the year-matching path
+    never runs and the anime resolved to the live-action series' tmdb id. The
+    episodes themselves are the evidence: 8 live-action episodes cannot hold
+    absolute number 145.
+    """
+    live = {"id": 46065, "name": "One Piece", "premiered": "2023-08-31", "externals": {}}
+    anime = {"id": 1505, "name": "One Piece", "premiered": "1999-10-20", "externals": {}}
+    anime_eps = {(year, n): f"Ep {year}-{n}" for year in (2023, 2024, 2025)
+                 for n in range(1, 61)}
+    lists = {46065: {(1, n): f"Live {n}" for n in range(1, 9)}, 1505: anime_eps}
+
+    monkeypatch.setattr(tidy, "tvmaze_show", lambda title, year=None: live)
+    monkeypatch.setattr(tidy, "tvmaze_candidates", lambda title: [live, anime])
+    monkeypatch.setattr(tidy, "tvmaze_episodes", lambda sid: lists[sid])
+    monkeypatch.setattr(
+        tidy, "_resolve_tmdb",
+        lambda mt, t, y, imdb: (("37854" if y == 1999 else "111110"), "One Piece", y, ""),
+    )
+
+    src = tmp_path / "One Piece (Arc 145-146) - 2160p"
+    _mk(src / "One Piece - 145 - The Winner Takes All - 2160p.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert plan.tmdb_id == "37854"  # the anime, not tt11737520's live-action
+    assert plan.year == 1999

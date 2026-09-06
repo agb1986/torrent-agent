@@ -63,6 +63,7 @@ class TidyPlan:
     root: Path | None = None        # the directory (tv) or file (film) produced
     moves: list[Move] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     left_behind: list[Path] = field(default_factory=list)
 
     @property
@@ -85,6 +86,9 @@ class TidyPlan:
         if self.problems:
             lines.append("problems:")
             lines += [f"  - {p}" for p in self.problems]
+        if self.notes:
+            lines.append("notes:")
+            lines += [f"  - {n}" for n in self.notes]
         return "\n".join(lines)
 
 
@@ -131,20 +135,25 @@ def tvmaze_show(title: str, year: int | None = None) -> dict | None:
     returns every candidate with its premiere date, so pick the one whose
     year matches the release when we have one.
     """
+    results = tvmaze_candidates(title)
+    if not results:
+        return None
+    if year is not None:
+        for show in results:
+            premiered = str(show.get("premiered") or "")
+            if premiered[:4].isdigit() and int(premiered[:4]) == year:
+                return show
+    return results[0]
+
+
+def tvmaze_candidates(title: str) -> list[dict]:
+    """Every show TVmaze offers for `title`, best-scored first."""
     q = urllib.parse.urlencode({"q": title})
     try:
         results = _get_json(f"{_TVMAZE}/search/shows?{q}")
     except (urllib.error.URLError, OSError, ValueError):
-        return None
-    if not results:
-        return None
-    if year is not None:
-        for row in results:
-            show = row.get("show") or {}
-            premiered = str(show.get("premiered") or "")
-            if premiered[:4].isdigit() and int(premiered[:4]) == year:
-                return show
-    return results[0].get("show")
+        return []
+    return [row["show"] for row in results if row.get("show")]
 
 
 def tvmaze_episode_details(show_id: int) -> dict[tuple[int, int], dict]:
@@ -170,6 +179,120 @@ def tvmaze_episode_details(show_id: int) -> dict[tuple[int, int], dict]:
 def tvmaze_episodes(show_id: int) -> dict[tuple[int, int], str]:
     """Episode names only — what the rename plan needs."""
     return {k: v["name"] for k, v in tvmaze_episode_details(show_id).items()}
+
+
+# --- absolute (anime) episode numbering -----------------------------------
+
+# "1088.5" is anime's convention for a recap or special sitting between two
+# numbered episodes. Its digits round onto the episode before it, so it has to
+# be recognised rather than parsed.
+_ANIME_SPECIAL_RE = re.compile(r"(?<![\d.])\d{2,4}\.5(?!\d)")
+
+
+def _broadcast_order(names: dict[tuple[int, int], str]) -> list[tuple[int, int]]:
+    """Every episode in broadcast order — what an absolute number indexes.
+
+    Sorted rather than trusted in API order so the mapping is deterministic.
+    TVmaze seasons are integers under both schemes it uses — 1, 2, 3… for most
+    shows, and 1999, 2000, 2001… for long-running anime it numbers by year —
+    so (season, number) sorts into the order episodes aired either way.
+    """
+    return sorted(names)
+
+
+def _absolute_number(stem: str, guess: dict) -> int | None:
+    """The absolute episode number an anime-style name carries, if any.
+
+    guessit has no concept of absolute numbering. It reads
+    "One Piece - 1086 - ..." as season 10 episode 86, which resolves against no
+    show, and leaves the whole token as the episode only when something else
+    already looked like a group tag ("[SubsPlease] One Piece - 1086"). Either
+    way the original digits are recoverable — but only claim them when they
+    really do appear as one number in the name, because a plain "S02E05" would
+    otherwise reconstruct to a bogus absolute 205 and map onto whatever the
+    205th episode happens to be.
+    """
+    number = guess.get("episode")
+    if not isinstance(number, int):
+        return None
+    season = guess.get("season")
+    if season is None:
+        candidate = number
+    elif isinstance(season, int) and 0 <= number < 100:
+        # A round absolute number splits with a zero episode: "1100" reaches
+        # here as season 11, episode 0.
+        candidate = season * 100 + number
+    else:
+        return None
+    if candidate < 100:
+        # Below three digits an absolute number is indistinguishable from an
+        # ordinary episode number, and the season-one default already covers it.
+        return None
+    return candidate if re.search(rf"(?<!\d){candidate}(?!\d)", stem) else None
+
+
+def _is_anime_special(stem: str, guess: dict) -> bool:
+    return _absolute_number(stem, guess) is not None and bool(_ANIME_SPECIAL_RE.search(stem))
+
+
+def _episode_key(
+    stem: str,
+    guess: dict,
+    names: dict[tuple[int, int], str],
+    order: list[tuple[int, int]],
+) -> tuple[int, int] | None:
+    """The episode a file names, or None if this show has no such episode."""
+    number = guess.get("episode")
+    if not isinstance(number, int):
+        return None
+    season = guess.get("season")
+    # A miniseries often ships bare E01..E07 with no season token at all.
+    direct = (1 if season is None else season, number)
+    if isinstance(direct[0], int) and direct in names:
+        return direct
+    absolute = _absolute_number(stem, guess)
+    if absolute is not None and absolute <= len(order):
+        return order[absolute - 1]
+    return None
+
+
+def _fit(episodes: list[tuple[Path, dict]], names: dict[tuple[int, int], str]) -> int:
+    """How many of these files land on a real episode of this show."""
+    order = _broadcast_order(names)
+    return sum(_episode_key(f.stem, g, names, order) is not None for f, g in episodes)
+
+
+def _resolve_tv_show(
+    parsed_title: str, release_year: int | None, episodes: list[tuple[Path, dict]]
+) -> tuple[dict | None, dict[tuple[int, int], str]]:
+    """Pick the show these files belong to, and its episode list.
+
+    `tvmaze_show` answers from the title and release year alone. Anime almost
+    never carries a year, and a title two shows share then resolves to whichever
+    TVmaze happened to score first: for "One Piece" that is the 2023 live-action
+    series, not the 1999 anime — same name, identical score, different programme
+    and a different tmdb id. The files themselves settle it, so when not one of
+    them lands on an episode of the first answer, try the other shows of that
+    exact name and take the one they actually fit.
+    """
+    show = tvmaze_show(parsed_title, release_year)
+    if not show:
+        return None, {}
+    names = tvmaze_episodes(int(show["id"]))
+    if release_year is not None or _fit(episodes, names):
+        return show, names
+
+    best, best_names, best_fit = show, names, 0
+    for other in tvmaze_candidates(parsed_title):
+        if int(other.get("id") or 0) == int(show["id"]):
+            continue
+        if (other.get("name") or "").casefold() != parsed_title.casefold():
+            continue
+        other_names = tvmaze_episodes(int(other["id"]))
+        scored = _fit(episodes, other_names)
+        if scored > best_fit:
+            best, best_names, best_fit = other, other_names, scored
+    return best, best_names
 
 
 def _resolve_tmdb(media_type: str, title: str, year: int | None, imdb: str | None):
@@ -277,13 +400,12 @@ def _plan_tv(source: Path, episodes: list[tuple[Path, dict]]) -> TidyPlan:
     years = {g.get("year") for _f, g in episodes if g.get("year")}
     release_year = years.pop() if len(years) == 1 else None
 
-    show = tvmaze_show(parsed_title, release_year)
+    show, names = _resolve_tv_show(parsed_title, release_year, episodes)
     if not show:
         return TidyPlan(kind="tv", problems=[f"TVmaze has no match for {parsed_title!r}"])
-
-    names = tvmaze_episodes(int(show["id"]))
     if not names:
         return TidyPlan(kind="tv", problems=["TVmaze returned no episode list"])
+    order = _broadcast_order(names)
 
     premiered = str(show.get("premiered") or "")
     year = int(premiered[:4]) if premiered[:4].isdigit() else None
@@ -311,14 +433,26 @@ def _plan_tv(source: Path, episodes: list[tuple[Path, dict]]) -> TidyPlan:
         if not isinstance(season, int) or not isinstance(number, int):
             plan.problems.append(f"{f.name}: could not read season/episode")
             continue
-        title = names.get((season, number))
-        if not title:
-            plan.problems.append(f"{f.name}: TVmaze has no S{season:02d}E{number:02d}")
+        if _is_anime_special(f.stem, g):
+            # A ".5" recap has no episode number TVmaze can name, and its digits
+            # round onto the episode before it — claiming it would file two
+            # files as one. Leave it for a human rather than collide.
+            plan.notes.append(f"{f.name}: recap special, left in place")
             continue
+        key = _episode_key(f.stem, g, names, order)
+        if key is None:
+            absolute = _absolute_number(f.stem, g)
+            plan.problems.append(
+                f"{f.name}: TVmaze has no episode {absolute}"
+                if absolute is not None
+                else f"{f.name}: TVmaze has no S{season:02d}E{number:02d}"
+            )
+            continue
+        season, number = key
         target = (
             plan.root
             / f"Season {season:02d}"
-            / f"S{season:02d}E{number:02d} - {safe_name(title)}{f.suffix}"
+            / f"S{season:02d}E{number:02d} - {safe_name(names[key])}{f.suffix}"
         )
         if target in seen:
             plan.problems.append(f"two files map to {target.name}")

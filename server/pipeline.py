@@ -209,7 +209,16 @@ def format_outcome(outcome: Outcome) -> str:
             else "Jellyfin did NOT pick it up — the files are in place, "
                  "so a library scan will find them."
         )
-        return f"✅ {outcome.message}\n   {count} file(s) → {outcome.delivered_to}\n   {tail}"
+        lines = [
+            f"✅ {outcome.message}",
+            f"   {count} file(s) → {outcome.delivered_to}",
+            f"   {tail}",
+        ]
+        # Files the plan deliberately did not claim. Delivery succeeded, so this
+        # is not a warning — but saying nothing would quietly strand them in the
+        # downloads directory with no record that anything was left over.
+        lines += [f"   ⓘ {n}" for n in (plan.notes if plan else [])]
+        return "\n".join(lines)
 
 
     lines = [f"⚠️ {outcome.message}"]

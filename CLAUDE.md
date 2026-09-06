@@ -218,6 +218,26 @@ definitions on its own service, no cron needed.
 - **Codec preference:** `guessit` emits `H.265`/`H.264`; configs say
   `h265`/`x265`/`hevc`. `ranking._codec_matches` strips non-alphanumerics on both
   sides so they compare equal — don't substring-match raw.
+- **Anime ships absolute episode numbers, and `guessit` splits them.**
+  `One Piece - 1086 - Title.mkv` parses as season 10, episode 86 — an episode
+  no show has, so every file in a pack fails and `tidy` escalates the lot.
+  `tidy._absolute_number` rejoins the digits and indexes
+  `_broadcast_order(names)` instead. It only trusts the rejoined number when
+  those digits appear as one token in the filename: without that check a
+  genuine `S02E05` that TVmaze is missing would rebuild into absolute 205 and
+  file itself as an unrelated episode rather than escalating. A `.5` recap
+  (`1088.5`) rounds onto the episode before it, so it is recognised and left
+  in place as a `plan.notes` entry — not a problem, or one recap would strand
+  a whole pack.
+- **A shared title with no year resolves to the wrong programme.** TVmaze
+  scores the 2023 live-action *One Piece* and the 1999 anime identically and
+  returns the live-action first; anime releases carry no year, so
+  `tvmaze_show`'s year matching never runs and the anime resolved to
+  `tmdbid-111110`. `tidy._resolve_tv_show` settles it with the files
+  themselves — when not one of them lands on an episode of the first answer it
+  tries the other shows of that exact name and takes the one they fit. The
+  fallback fires only at zero matches, so a pack merely missing an episode
+  still escalates instead of shopping around.
 - **Multi-add:** the system prompt picks a single best release by default, but the
   model will add one torrent per episode when explicitly asked for "all episodes" —
   and falls back to per-episode search/add on its own when a whole-show/season
