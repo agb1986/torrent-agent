@@ -250,6 +250,19 @@ definitions on its own service, no cron needed.
   exclusions ("David Fincher films except Alien 3") work the same way via
   `list_filmography` (`scripts/tmdb_id.py`'s `films_by_director`, Wikidata
   `P57`/`P31=Q11424`) — no bespoke request parser either way.
+- **`guessit` takes "Part Two" out of a film's title.** `Dune Part Two 2024
+  ...` parses as title `Dune` plus `part: 2`, so TMDB was asked for a *Dune*
+  from 2024 and answered with the 1984 and 2021 films — ambiguous, and the
+  whole download escalated. `tidy._part_title` rejoins them, but only when the
+  part token sits immediately after the title: half a split rip is also
+  "Part 1", and there the year sits in between. The rejoined name is a guess
+  about where the title ends, so if TMDB doesn't know it the bare title is
+  asked again and *that* answer is the one reported.
+- **Wikidata keeps release dates it has disowned.** Deprecated-rank statements
+  are values an editor marked *wrong*, not alternatives — Dune: Part Two still
+  carries its abandoned November 2023 dates that way, and `_entity_year` takes
+  the earliest, so a 2024 film filed itself as `(2023)`. `tmdb_id._claim_values`
+  drops deprecated claims for every property, ids included.
 - **`imdb.expand()` splices, it doesn't replace.** A pasted link/id is
   resolved and swapped in place, leaving the rest of the request text intact
   — `tt14124236 get all S01 episodes except E01` keeps its instructions after

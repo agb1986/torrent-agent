@@ -157,10 +157,17 @@ def tmdb_lookup(
 # --------------------------------------------------------------------------- #
 
 def _claim_values(entity: dict, prop: str) -> list:
+    """Every value of `prop`, minus the ones Wikidata itself disowns.
+
+    A deprecated-rank statement is not an alternative value, it is one an
+    editor has marked as wrong — Dune: Part Two still carries its abandoned
+    November 2023 release dates that way. Reading them makes the film a 2023
+    one (see _entity_year, which takes the earliest).
+    """
     return [
         claim["mainsnak"].get("datavalue", {}).get("value")
         for claim in entity.get("claims", {}).get(prop, [])
-        if claim["mainsnak"].get("datavalue")
+        if claim["mainsnak"].get("datavalue") and claim.get("rank") != "deprecated"
     ]
 
 
