@@ -121,6 +121,75 @@ def test_a_film_becomes_a_flat_tagged_file(tmp_path, monkeypatch):
     assert plan.root.name == "Withnail & I (1987) [tmdbid-13446].mkv"
 
 
+def test_a_films_part_number_stays_in_the_title(tmp_path, monkeypatch):
+    """`Dune Part Two` must not be looked up as `Dune`.
+
+    guessit splits the part off into its own field, leaving a title TMDB only
+    knows from 1984 and 2021 — the ambiguity escalated the whole download.
+    """
+    asked = []
+
+    def _resolve(mt, title, year, imdb):
+        asked.append(title)
+        return ("693134", "Dune: Part Two", 2024, "")
+
+    monkeypatch.setattr(tidy, "_resolve_tmdb", _resolve)
+    src = tmp_path / "Dune Part Two 2024 1080p BluRay x265 DD 7 1-Pahe in"
+    _mk(src / "Dune Part Two 2024 1080p BluRay x265 DD 7 1-Pahe in.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert asked == ["Dune Part Two"]
+    assert plan.confident, plan.problems
+    assert plan.root.name == "Dune Part Two (2024) [tmdbid-693134].mkv"
+
+
+def test_a_disc_split_part_is_not_glued_onto_the_title(tmp_path, monkeypatch):
+    """Half a rip is also "part 1", and it is not part of the film's name.
+
+    The year sitting between the title and the part token is what separates
+    the two cases; without that check every split release would be looked up
+    under a title nothing matches.
+    """
+    asked = []
+
+    def _resolve(mt, title, year, imdb):
+        asked.append(title)
+        return ("13446", "Some Film", 2001, "")
+
+    monkeypatch.setattr(tidy, "_resolve_tmdb", _resolve)
+    src = tmp_path / "Some.Film.2001.1080p.BluRay.Part.1"
+    _mk(src / "Some.Film.2001.1080p.BluRay.Part.1.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert asked == ["Some Film"]
+
+
+def test_a_rejoined_title_tmdb_rejects_falls_back_to_the_bare_one(tmp_path, monkeypatch):
+    """Rejoining is a claim about where the name ends, and it can be wrong.
+
+    TMDB not knowing "Some Film Part 2" means the part was never part of the
+    title — not that the film is unknown — so the bare title gets its turn.
+    """
+    answers = {"Some Film Part 2": (None, "Some Film Part 2", 2001, "")}
+    asked = []
+
+    def _resolve(mt, title, year, imdb):
+        asked.append(title)
+        return answers.get(title, ("999", "Some Film", 2001, ""))
+
+    monkeypatch.setattr(tidy, "_resolve_tmdb", _resolve)
+    src = tmp_path / "Some Film Part 2 2001 1080p BluRay"
+    _mk(src / "Some Film Part 2 2001 1080p BluRay.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert asked == ["Some Film Part 2", "Some Film"]
+    assert plan.confident, plan.problems
+    assert plan.root.name == "Some Film (2001) [tmdbid-999].mkv"
+
+
 # --- the refusals ---------------------------------------------------------
 
 

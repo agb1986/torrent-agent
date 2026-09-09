@@ -464,17 +464,59 @@ def _plan_tv(source: Path, episodes: list[tuple[Path, dict]]) -> TidyPlan:
     return plan
 
 
+# Separators a release name puts between words. A part token is only part of
+# the title when nothing but these sit between them.
+_TITLE_SEPARATORS = " ._-"
+
+
+def _part_title(name: str, guess: dict) -> str | None:
+    """The title with its "Part Two" put back, or None if it never lost one.
+
+    `Dune Part Two 2024 ...` parses as title "Dune" plus part 2, and TMDB has
+    no film called Dune from 2024 — half the name went into the part. Only a
+    part token sitting immediately after the title belongs to it: a disc split
+    (`Film.2001.Part.1`) has the year in between, and gluing that on would
+    invent a title nothing matches.
+    """
+    if not isinstance(guess.get("part"), int):
+        return None
+    try:
+        advanced = guessit(name, {"advanced": True})
+    except Exception:  # pragma: no cover - guessit option unavailable
+        return None
+    title, part = advanced.get("title"), advanced.get("part")
+    if not hasattr(title, "span") or not hasattr(part, "span"):
+        return None
+    # The match is the number alone ("Two"); its initiator covers the whole
+    # "Part Two" token, which is what has to be rejoined.
+    token = getattr(part, "initiator", None) or part
+    if not hasattr(token, "span") or token.span[0] < title.span[1]:
+        return None
+    if name[title.span[1]:token.span[0]].strip(_TITLE_SEPARATORS):
+        return None
+    joined = re.sub(r"\s+", " ", re.sub(r"[._]+", " ", name[title.span[0]:token.span[1]]))
+    joined = joined.strip()
+    bare = str(guess.get("title") or "").strip()
+    return joined if joined and joined != bare else None
+
+
 def _plan_film(source: Path, media: Path, guess: dict) -> TidyPlan:
     title = str(guess.get("title") or "").strip()
-    year = guess.get("year")
+    release_year = guess.get("year")
     if not title:
         return TidyPlan(kind="film", problems=[f"could not read a title from {media.name}"])
-    if not isinstance(year, int):
+    if not isinstance(release_year, int):
         # The year separates a film from its remake; without it the TMDB match
         # is a coin toss, so escalate rather than guess.
         return TidyPlan(kind="film", name=title, problems=[f"no year in {media.name}"])
 
-    tmdb, canonical, year, problem = _resolve_tmdb("movie", title, year, None)
+    lookup = _part_title(media.name, guess) or title
+    tmdb, canonical, year, problem = _resolve_tmdb("movie", lookup, release_year, None)
+    if tmdb is None and lookup != title:
+        # The rejoined title is a claim about where the name ends. TMDB not
+        # knowing it means the claim was wrong, not that the film is unknown —
+        # so ask again with the title guessit gave, and report that answer.
+        tmdb, canonical, year, problem = _resolve_tmdb("movie", title, release_year, None)
     plan = TidyPlan(kind="film", name=canonical, year=year, tmdb_id=tmdb)
     if problem:
         plan.problems.append(problem)

@@ -5,16 +5,23 @@ import pytest
 import tmdb_id
 
 
-def _entity(tmdb_prop=None, tmdb_value=None, label=None, dates=None):
+def _entity(tmdb_prop=None, tmdb_value=None, label=None, dates=None, deprecated=None):
+    """A Wikidata entity. `dates` are normal-rank; `deprecated` ones are not."""
     claims = {}
     if tmdb_prop:
         claims[tmdb_prop] = [
-            {"mainsnak": {"datavalue": {"value": tmdb_value}}}
+            {"mainsnak": {"datavalue": {"value": tmdb_value}}, "rank": "normal"}
         ]
     for prop, times in (dates or {}).items():
         claims[prop] = [
-            {"mainsnak": {"datavalue": {"value": {"time": t}}}} for t in times
+            {"mainsnak": {"datavalue": {"value": {"time": t}}}, "rank": "normal"}
+            for t in times
         ]
+    for prop, times in (deprecated or {}).items():
+        claims.setdefault(prop, []).extend(
+            {"mainsnak": {"datavalue": {"value": {"time": t}}}, "rank": "deprecated"}
+            for t in times
+        )
     return {"claims": claims, "labels": {"en": {"value": label}} if label else {}}
 
 
@@ -74,6 +81,20 @@ def test_entity_year_takes_the_earliest_release():
 
 def test_entity_year_is_none_when_wikidata_has_no_date():
     assert tmdb_id._entity_year(_entity(label="Nameless"), "movie") is None
+
+
+def test_entity_year_ignores_a_release_date_wikidata_disowns():
+    """A deprecated statement is a value an editor marked wrong, not an option.
+
+    Dune: Part Two still carries its abandoned November 2023 dates that way,
+    and `_entity_year` takes the earliest — so reading them filed a 2024 film
+    as "Dune: Part Two (2023)".
+    """
+    entity = _entity(
+        dates={"P577": ["+2024-03-01T00:00:00Z", "+2024-02-27T00:00:00Z"]},
+        deprecated={"P577": ["+2023-10-18T00:00:00Z", "+2023-11-17T00:00:00Z"]},
+    )
+    assert tmdb_id._entity_year(entity, "movie") == 2024
 
 
 # --------------------------------------------------------------------------- #
