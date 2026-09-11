@@ -188,6 +188,19 @@ destinations and Jellyfin settings live in the `[server]` and `[jellyfin]`
 blocks of `config.toml`; the Jellyfin API key is read from
 `JELLYFIN_API_KEY`.
 
+Delivered films are then put into Jellyfin **collections**
+(`torrent_agent/boxsets.py`), from both `transfer.py --film` and the
+pipeline. A film joins the collection named for its director, and a new
+director collection starts once the library has three of their films. Claude
+decides the themed ones ("Mind Benders", "British & Irish"), judging by each
+collection's current members, and may start a new collection when a group
+is clearly missing. Its answer is checked before anything is applied. The
+collections live in the `jellyfin-collections` skill's `collections.json`,
+set by `[collections] file`; new assignments are written back there, so
+`sync_collections.py --sync` and the pipeline agree. To backfill films
+already in the library, run `python -m torrent_agent.boxsets <tmdb_id>…`
+(add `--dry-run` to preview).
+
 Tidying refuses rather than guesses. It needs one show name across every file,
 a TVmaze episode for each, and an unambiguous TMDB id; short of that it
 changes nothing and says what was unclear.
@@ -262,6 +275,7 @@ installed.
 | `torrent_agent/imdb.py`    | IMDb link or `tt…` id → searchable title and year |
 | `torrent_agent/tidy.py`    | plan a rename, and refuse when anything is unclear |
 | `torrent_agent/replace.py` | find stalled torrents, remove them, re-fetch from a different source |
+| `torrent_agent/boxsets.py` | put a delivered film into Jellyfin collections: director rules, then Claude for themes |
 | `torrent_agent/cli.py`     | entrypoint |
 | `server/bot.py` | Telegram bot: `/get`, `/replace`, `/status`, `/cancel` |
 | `server/sub.py` | follow a running series; fetch episodes as they air |

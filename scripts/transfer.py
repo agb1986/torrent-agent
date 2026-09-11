@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -32,6 +33,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
 
+from torrent_agent import boxsets
 from torrent_agent.config import load_config
 
 CONFIG = load_config()
@@ -244,6 +246,21 @@ def notify_library(host_path: str) -> None:
 scan_jellyfin = notify_library
 
 
+_TMDB_TAG = re.compile(r"\[tmdbid-(\d+)\]")
+
+
+def film_ids(source: str) -> list[str]:
+    """The TMDB ids tidy wrote into what is about to be delivered.
+
+    Read before the transfer, not after: a local move takes the files away.
+    """
+    path = Path(source.rstrip("/"))
+    names = [path.name]
+    if path.is_dir():
+        names += [p.name for p in sorted(path.rglob("*"))]
+    return list(dict.fromkeys(m for n in names for m in _TMDB_TAG.findall(n)))
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Transfer media to the server: a local move when it is this machine, otherwise rsync over SSH."
@@ -261,6 +278,12 @@ def main():
             help=f"Transfer to the {flag} destination ({DESTINATIONS[flag]})",
         )
 
+    parser.add_argument(
+        "--no-collections",
+        action="store_true",
+        help="don't assign delivered films to Jellyfin collections",
+    )
+
     args = parser.parse_args()
 
     # Collect which flags were set
@@ -273,6 +296,7 @@ def main():
         )
 
     start = datetime.now()
+    films = film_ids(args.source) if "film" in selected else []
 
     exit_codes = []
     transferred = []
@@ -300,6 +324,14 @@ def main():
             scan_jellyfin(f"{dest}/{os.path.basename(source)}")
         else:
             scan_jellyfin(dest)
+
+    # Then collections — after the scan, since a film must be a Jellyfin item
+    # before it can join one.
+    if DESTINATIONS.get("film") in transferred and not args.no_collections:
+        for tmdb in films:
+            result = boxsets.assign(tmdb, CONFIG)
+            for line in result.lines() if result else []:
+                print(f"Jellyfin: {line}")
 
     end = datetime.now()
     duration = end - start

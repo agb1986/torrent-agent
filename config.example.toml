@@ -147,3 +147,13 @@ near_complete_progress = 95.0
 # no mapping skip the scan.
 # "/srv/media/tv" = "/media/tv"
 # "/srv/media/film" = "/media/movies"
+
+[collections]
+# Put each delivered film into Jellyfin collections (torrent_agent/boxsets.py).
+# `file` is the jellyfin-collections skill's collections.json: it is read for
+# the current collections, and new assignments are written back to it. Empty
+# turns this off. Theme placement asks Claude, so it needs ANTHROPIC_API_KEY;
+# without one only the director rules run.
+file = ""            # e.g. "~/.claude/skills/jellyfin-collections/collections.json"
+wait_seconds = 180   # how long to wait for Jellyfin to scan a delivered film in
+min_members = 3      # films a new collection needs

@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from torrent_agent import ai_data_store, deluge
+from torrent_agent import ai_data_store, boxsets, deluge
 from torrent_agent.deluge import DelugeError
 from torrent_agent.security import ClamAVUnavailable, clamav_scan
 from torrent_agent.tidy import TidyPlan, execute, plan_for
@@ -44,6 +44,7 @@ class Outcome:
     delivered_to: str | None = None
     jellyfin_ok: bool = True
     details: list[str] = field(default_factory=list)
+    collections: list[str] = field(default_factory=list)
 
 
 def _destination_for(kind: str, config: dict[str, Any]) -> str | None:
@@ -182,6 +183,20 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
             log.warning("Jellyfin scan failed: %s", exc)
             jellyfin_ok = False
 
+    # 7. Collections, films only. After the scan, because the film has to be
+    #    a Jellyfin item before it can join anything — and skipped when the
+    #    scan failed, since the wait would only run out.
+    collections: list[str] = []
+    if plan.kind == "film" and plan.tmdb_id and jellyfin_ok:
+        try:
+            assigned = boxsets.assign(plan.tmdb_id, config)
+        except Exception as exc:  # noqa: BLE001 - never fail a delivered file
+            log.warning("collections failed: %s", exc)
+            assigned = None
+            collections = [f"Collections stopped: {exc}"]
+        if assigned is not None:
+            collections = assigned.lines()
+
     # The automated pipeline has no other artifact-writing analog — log_tidy.py
     # is only invoked by the interactive tidy-files skill's manual pipe — so
     # this is the only place an autodelivered item reaches ai-data-store.
@@ -194,7 +209,7 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
 
     return Outcome(
         True, "done", f"Delivered {plan.root.name}", plan=plan, delivered_to=landed,
-        jellyfin_ok=jellyfin_ok,
+        jellyfin_ok=jellyfin_ok, collections=collections,
     )
 
 
@@ -218,6 +233,7 @@ def format_outcome(outcome: Outcome) -> str:
         # is not a warning — but saying nothing would quietly strand them in the
         # downloads directory with no record that anything was left over.
         lines += [f"   ⓘ {n}" for n in (plan.notes if plan else [])]
+        lines += [f"   📚 {c}" for c in outcome.collections]
         return "\n".join(lines)
 
 

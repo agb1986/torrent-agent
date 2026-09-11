@@ -303,6 +303,21 @@ definitions on its own service, no cron needed.
   release name rather than inventing a naming scheme, and
   `server/pipeline.py` skips the Jellyfin scan for it — Jellyfin is a video
   library and has nothing to match manga against.
+- **Collections (`torrent_agent/boxsets.py`) use judgment, and that is
+  deliberate.** A delivered film joins box sets after the Jellyfin scan,
+  from the pipeline and from `transfer.py --film`. Unlike tidy, this is
+  allowed to use judgment: membership is reversible and moves no file.
+  Director collections are rule-based. Themes, and any new collection, come
+  from one Claude call with structured output, and its answer is checked
+  before it touches anything: names must exist, and a new collection needs
+  `min_members` real library films including the new one. The source of
+  truth is the `jellyfin-collections` skill's `collections.json` (outside
+  this repo, `[collections] file`). It is written *before* Jellyfin is told,
+  so a Jellyfin failure is repaired by that skill's `--sync` rather than
+  lost. The writer edits lists in place to keep the hand-kept one-per-line
+  layout, so don't replace it with `json.dump`. It waits up to
+  `wait_seconds` for the scan to list the film, which blocks the notifier
+  that long, and it is skipped when the scan itself failed.
 
 ## Conventions
 
