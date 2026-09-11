@@ -55,6 +55,13 @@ def wired(monkeypatch, tmp_path):
     calls["infected"] = []
     monkeypatch.setattr(pipeline, "clamav_scan", lambda src: calls["infected"])
 
+    # Films would otherwise wait on a real Jellyfin; record the call instead.
+    calls["assigned"] = []
+    monkeypatch.setattr(
+        pipeline.boxsets, "assign",
+        lambda tmdb, config: calls["assigned"].append(tmdb),
+    )
+
     source = tmp_path / "downloads" / "Some.Show.S01"
     source.mkdir(parents=True)
     calls["source"] = source
@@ -280,3 +287,63 @@ def test_a_failed_jellyfin_scan_is_not_reported_as_notified(wired, monkeypatch, 
     assert outcome.ok                    # the files did land
     assert outcome.jellyfin_ok is False
     assert "did NOT pick it up" in pipeline.format_outcome(outcome)
+
+
+# --- collections -------------------------------------------------------------
+
+
+def _film_plan(tmp_path):
+    plan = _confident_plan(tmp_path)
+    plan.kind, plan.tmdb_id = "film", "1949"
+    return plan
+
+
+def test_a_delivered_film_is_put_into_collections(wired, monkeypatch, tmp_path):
+    from torrent_agent.boxsets import Assignment
+
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: _film_plan(tmp_path))
+    monkeypatch.setattr(
+        pipeline.boxsets, "assign",
+        lambda tmdb, config: wired["assigned"].append(tmdb)
+        or Assignment(1949, film="Zodiac (2007)", joined=["David Fincher"]),
+    )
+
+    outcome = pipeline.run(wired["torrent"], CONFIG)
+
+    assert wired["assigned"] == ["1949"]
+    assert "📚 Collections: added to David Fincher" in pipeline.format_outcome(outcome)
+
+
+def test_tv_is_not_put_into_collections(wired, monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: _confident_plan(tmp_path))
+
+    pipeline.run(wired["torrent"], CONFIG)
+
+    assert wired["assigned"] == []
+
+
+def test_no_collections_when_jellyfin_was_not_told(wired, monkeypatch, tmp_path):
+    # The film cannot turn up in Jellyfin, so waiting for it would only
+    # hold up the notifier for the whole timeout.
+    import transfer
+
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: _film_plan(tmp_path))
+    monkeypatch.setattr(transfer, "scan_jellyfin", lambda path: print("[WARN] down"))
+
+    pipeline.run(wired["torrent"], CONFIG)
+
+    assert wired["assigned"] == []
+
+
+def test_a_collections_crash_does_not_fail_a_delivered_film(wired, monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: _film_plan(tmp_path))
+
+    def boom(tmdb, config):
+        raise RuntimeError("collections.json is corrupt")
+
+    monkeypatch.setattr(pipeline.boxsets, "assign", boom)
+
+    outcome = pipeline.run(wired["torrent"], CONFIG)
+
+    assert outcome.ok
+    assert "Collections stopped: collections.json is corrupt" in pipeline.format_outcome(outcome)

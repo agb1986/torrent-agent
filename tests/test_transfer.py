@@ -181,3 +181,25 @@ def test_the_library_scan_ignores_a_configured_proxy(monkeypatch):
     names = [h.__class__.__name__ for h in transfer._DIRECT.handlers]
     assert not any("Proxy" in n for n in names), f"opener can proxy: {names}"
     assert "HTTPHandler" in names, "opener should still speak http"
+
+
+# --- which films to put into collections -------------------------------------
+
+
+def test_film_ids_are_read_from_the_delivered_names(tmp_path):
+    film = tmp_path / "Zodiac (2007) [tmdbid-1949].mkv"
+    film.write_text("")
+    assert transfer.film_ids(str(film)) == ["1949"]
+
+    folder = tmp_path / "Dune Films"
+    folder.mkdir()
+    (folder / "Dune (2021) [tmdbid-438631].mkv").write_text("")
+    (folder / "Dune Part Two (2024) [tmdbid-693134].mkv").write_text("")
+    (folder / "Dune (2021) [tmdbid-438631].srt").write_text("")
+    assert transfer.film_ids(str(folder) + "/") == ["438631", "693134"]
+
+
+def test_an_untagged_film_has_no_ids(tmp_path):
+    film = tmp_path / "Home Movie.mkv"
+    film.write_text("")
+    assert transfer.film_ids(str(film)) == []

@@ -78,6 +78,16 @@ DEFAULTS: dict[str, Any] = {
     # scripts/tmdb_id.py tags tidied media with its TMDB id. The key is
     # optional — without one it resolves ids through Wikidata instead.
     "tmdb": {"api_key": ""},
+    # torrent_agent/boxsets.py puts each delivered film into Jellyfin
+    # collections. `file` is the jellyfin-collections skill's
+    # collections.json; empty means off, since it is per-install.
+    "collections": {
+        "file": "",
+        # How long to wait for Jellyfin to scan a delivered film in.
+        "wait_seconds": 180,
+        # Films a new collection needs before it is worth having.
+        "min_members": 3,
+    },
     # scripts/prune.py reclaims disk by removing torrents that have finished
     # seeding. Off by default, and deliberately: this is the only thing in the
     # repo that deletes a user's media, so it must be opted into rather than
