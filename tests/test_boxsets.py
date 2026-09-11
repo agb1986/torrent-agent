@@ -310,6 +310,9 @@ def test_an_already_listed_film_is_pushed_to_jellyfin_not_duplicated(defs_file):
     assert result.joined == []
     assert defs_file.read_text() == DEFS_TEXT
     assert jf.added == [("bs-fincher", ["item807"]), ("bs-dk", ["item807"])]
+    assert result.lines()[0] == (
+        "Collections: already in David Fincher, Detectives & Killers; nothing to add"
+    )
 
 
 def test_a_jellyfin_error_leaves_the_file_updated_for_sync(defs_file):

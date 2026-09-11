@@ -61,6 +61,7 @@ class Assignment:
     film: str = ""
     joined: list[str] = field(default_factory=list)
     created: dict[str, int] = field(default_factory=dict)   # name -> member count
+    listed: list[str] = field(default_factory=list)          # already a member
     why: str = ""
     notes: list[str] = field(default_factory=list)
     dry_run: bool = False
@@ -75,7 +76,12 @@ class Assignment:
             made = "Would create" if self.dry_run else "New collection"
             out.append(f'{made} "{name}" ({count} films)')
         if self.film and not self.joined and not self.created:
-            out.append(f"Collections: {self.film} fits none")
+            # "Fits none" about a film already in collections reads as if it
+            # had been taken out of them.
+            if self.listed:
+                out.append(f"Collections: already in {', '.join(self.listed)}; nothing to add")
+            else:
+                out.append(f"Collections: {self.film} fits none")
         if self.why:
             out.append(self.why)
         return out + self.notes
@@ -538,6 +544,7 @@ def _assign(
     # have to catch.
     listed = [n for n, ids in collections.items() if result.tmdb_id in ids]
     join = [n for n in dict.fromkeys(join) if n not in listed]
+    result.listed = listed
     result.joined = join
     result.created = {n: len(ids) for n, ids in create.items()}
     if result.dry_run or not (join or create or listed):
