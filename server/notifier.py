@@ -134,7 +134,10 @@ class CompletionNotifier:
         log.info("pipeline %s at %s: %s", "ok" if outcome.ok else "stopped",
                  outcome.stage, outcome.message)
         if not outcome.ok:
-            record_error("pipeline", outcome.stage, outcome.message)
+            # The details are the why ("directory mixes episodes and films");
+            # without them the log says a download escalated but not what to fix.
+            record_error("pipeline", outcome.stage,
+                         "\n".join([outcome.message, *outcome.details]))
         self._say(format_outcome(outcome))
 
     def _say(self, text: str) -> None:

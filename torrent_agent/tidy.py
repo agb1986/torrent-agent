@@ -47,6 +47,19 @@ _TIMEOUT = 20
 # quiet way to deliver 40 seconds of a film.
 _MIN_MEDIA_BYTES = 50 * 1024 * 1024
 
+# Folders a release keeps its bonus material in. What is inside is named for
+# what it is ("The Making of Veep", "Deleted Scenes/Andrew.mkv"), not by season
+# and episode, so guessit calls each one a film — and one over the size floor
+# turned a clean 7-season Veep pack into "mixes episodes and films". Extras are
+# never the thing being filed, so they are set aside before anything is
+# classified, and the pipeline deletes them once the rest is delivered.
+# "Specials" is deliberately absent: that is season 0, real episodes TVmaze
+# can name.
+_EXTRAS_DIRS = {
+    "extras", "featurettes", "bonus", "bonus features", "special features",
+    "behind the scenes", "deleted scenes", "interviews", "trailers",
+}
+
 
 @dataclass
 class Move:
@@ -115,8 +128,35 @@ def media_files(source: Path) -> list[Path]:
         if p.is_file()
         and p.suffix.lower() in MEDIA_SUFFIXES
         and p.stat().st_size >= _MIN_MEDIA_BYTES
+        and not _is_extra(source, p)
     ]
     return sorted(found, key=lambda p: p.stat().st_size, reverse=True)
+
+
+def _is_extra(source: Path, path: Path) -> bool:
+    """Whether `path` sits in an extras folder below `source`.
+
+    Only folders inside the release count — the release directory's own name
+    is whatever the uploader called it, not a statement about its contents.
+    """
+    folders = path.relative_to(source).parts[:-1]
+    return any(part.strip().lower() in _EXTRAS_DIRS for part in folders)
+
+
+def extras_dirs(source: Path) -> list[Path]:
+    """The outermost extras folders below `source`.
+
+    Nothing here files them; the pipeline deletes them once the download has
+    been delivered (see server/pipeline.py).
+    """
+    if not source.is_dir():
+        return []
+    found: list[Path] = []
+    for p in sorted(source.rglob("*")):
+        if p.is_dir() and not p.is_symlink() and p.name.strip().lower() in _EXTRAS_DIRS:
+            if not any(parent in found for parent in p.parents):
+                found.append(p)
+    return found
 
 
 def safe_name(text: str) -> str:

@@ -72,7 +72,8 @@ reclaim, **disarmed by default**).
   does too. update.sh also re-renders installed unit files — they are
   `__REPO__` templates expanded at install time, so a unit change in git is
   invisible until someone reinstalls it.
-- **`scripts/prune.py` is the only code here that deletes the user's media.**
+- **`scripts/prune.py` is the only code here that deletes the user's media**
+  (bar a delivered release's extras — see the box-set gotcha below).
   Three independent brakes, all load-bearing: `[prune] enabled` is false by
   default; it exits early while free space is above `min_free_gb`; and a
   candidate must satisfy *both* `min_seed_hours` and `min_ratio` — either
@@ -250,6 +251,15 @@ definitions on its own service, no cron needed.
   exclusions ("David Fincher films except Alien 3") work the same way via
   `list_filmography` (`scripts/tmdb_id.py`'s `films_by_director`, Wikidata
   `P57`/`P31=Q11424`) — no bespoke request parser either way.
+- **A box set's extras look like films.** Bonus features are named for what
+  they are (`Featurettes/Season 2/Deleted Scenes/Andrew.mkv`), so `guessit`
+  calls them films, and a 7-season Veep pack escalated as "mixes episodes and
+  films". `tidy._EXTRAS_DIRS` sets aside media inside extras-named folders
+  *below* the release before classifying. Once the rest is **delivered**,
+  `pipeline.delete_extras` deletes those folders and any directories left
+  empty — never on an escalation or failed delivery, and never other
+  leftovers (a `.5` recap stays for a human). `Specials` is not on that list —
+  it is season 0.
 - **`guessit` takes "Part Two" out of a film's title.** `Dune Part Two 2024
   ...` parses as title `Dune` plus `part: 2`, so TMDB was asked for a *Dune*
   from 2024 and answered with the 1984 and 2021 films — ambiguous, and the

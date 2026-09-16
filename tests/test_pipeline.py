@@ -95,6 +95,61 @@ def test_happy_path_runs_every_stage_in_order(wired, monkeypatch, tmp_path):
     assert wired["scanned"] == ["/mnt/data/tv/Some Show (2010) [tmdbid-99]"]
 
 
+def _with_extras(source):
+    """A delivered pack as tidy leaves it: seasons emptied, extras untouched."""
+    (source / "Season 1").mkdir()
+    extras = source / "Featurettes" / "Season 2" / "Deleted Scenes"
+    extras.mkdir(parents=True)
+    (extras / "Andrew.mkv").write_bytes(b"\0" * 1024)
+    (source / "Featurettes" / "The Making of.mkv").write_bytes(b"\0" * 1024)
+
+
+def test_extras_are_deleted_once_delivered(wired, monkeypatch, tmp_path):
+    _with_extras(wired["source"])
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: _confident_plan(tmp_path))
+
+    outcome = pipeline.run(wired["torrent"], CONFIG)
+
+    assert outcome.ok, outcome.message
+    assert not wired["source"].exists()        # emptied, so removed too
+    assert outcome.cleanup == ["Deleted 2 extra(s), 0.0 GB"]
+    assert "🗑 Deleted 2 extra(s)" in pipeline.format_outcome(outcome)
+
+
+def test_leftovers_that_are_not_extras_are_kept(wired, monkeypatch, tmp_path):
+    _with_extras(wired["source"])
+    (wired["source"] / "One Piece - 1088.5 - Recap.mkv").write_bytes(b"\0")
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: _confident_plan(tmp_path))
+
+    pipeline.run(wired["torrent"], CONFIG)
+
+    assert (wired["source"] / "One Piece - 1088.5 - Recap.mkv").exists()
+    assert not (wired["source"] / "Featurettes").exists()
+
+
+def test_an_escalated_download_keeps_its_extras(wired, monkeypatch):
+    _with_extras(wired["source"])
+    monkeypatch.setattr(pipeline, "plan_for",
+                        lambda src: TidyPlan(kind="tv", problems=["mixes"]))
+
+    pipeline.run(wired["torrent"], CONFIG)
+
+    assert (wired["source"] / "Featurettes" / "The Making of.mkv").exists()
+
+
+def test_a_failed_delivery_keeps_its_extras(wired, monkeypatch, tmp_path):
+    import transfer
+
+    _with_extras(wired["source"])
+    monkeypatch.setattr(pipeline, "plan_for", lambda src: _confident_plan(tmp_path))
+    monkeypatch.setattr(transfer, "transfer_local", lambda src, dest: 1)
+
+    outcome = pipeline.run(wired["torrent"], CONFIG)
+
+    assert outcome.stage == "deliver"
+    assert (wired["source"] / "Featurettes" / "The Making of.mkv").exists()
+
+
 def test_an_unconfident_plan_changes_nothing(wired, monkeypatch):
     plan = TidyPlan(kind="tv", problems=["ambiguous TMDB match — A (1974), B (2004)"])
     monkeypatch.setattr(pipeline, "plan_for", lambda src: plan)
