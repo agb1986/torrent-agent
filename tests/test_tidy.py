@@ -263,6 +263,40 @@ def test_a_directory_mixing_episodes_and_films_is_escalated(tmp_path):
     assert any("mixes" in p for p in plan.problems)
 
 
+def test_a_season_packs_extras_do_not_count_as_films(tmp_path, tv_lookups):
+    # Regression for the Veep box set: bonus features named for what they are,
+    # which guessit parses as films (and "Deleted scenes Ep 1-5" as episodes of
+    # a show called "Deleted scenes"), escalated a pack whose every episode was
+    # fine.
+    tv_lookups(name="Veep", premiered="2012-04-22", tmdb="2947",
+               episodes={(1, 1): "Fundraiser", (2, 2): "Signals"})
+    src = tmp_path / "Veep (2012) Season 1-7 S01-S07 (1080p BluRay x265 HEVC 10bit AAC 5.1 Silence)"
+    _mk(src / "Season 1" / "Veep (2012) - S01E01 - Fundraiser (1080p BluRay x265 Silence).mkv")
+    _mk(src / "Season 2" / "Veep (2012) - S02E02 - Signals (1080p BluRay x265 Silence).mkv")
+    _mk(src / "Featurettes" / "Season 1" / "The Making of Veep.mkv")
+    _mk(src / "Featurettes" / "Season 2" / "Deleted Scenes" / "Andrew.mkv")
+    _mk(src / "Featurettes" / "Season 5" / "Deleted scenes Ep 1-5.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert plan.confident, plan.problems
+    assert len(plan.moves) == 2
+    assert "3 extra(s) left in place, not filed" in plan.notes
+    assert {p.name for p in plan.left_behind} == {
+        "The Making of Veep.mkv", "Andrew.mkv", "Deleted scenes Ep 1-5.mkv"
+    }
+
+
+def test_a_release_of_only_extras_is_escalated(tmp_path):
+    src = tmp_path / "Some.Show.Bonus.Disc"
+    _mk(src / "Featurettes" / "The Making of Some Show.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert not plan.confident
+    assert any("no media files" in p for p in plan.problems)
+
+
 def test_no_media_files_is_escalated(tmp_path):
     src = tmp_path / "empty"
     src.mkdir()

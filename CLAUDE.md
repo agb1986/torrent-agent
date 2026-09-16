@@ -250,6 +250,12 @@ definitions on its own service, no cron needed.
   exclusions ("David Fincher films except Alien 3") work the same way via
   `list_filmography` (`scripts/tmdb_id.py`'s `films_by_director`, Wikidata
   `P57`/`P31=Q11424`) — no bespoke request parser either way.
+- **A box set's extras look like films.** Bonus features are named for what
+  they are (`Featurettes/Season 2/Deleted Scenes/Andrew.mkv`), so `guessit`
+  calls them films, and a 7-season Veep pack escalated as "mixes episodes and
+  films". `tidy._EXTRAS_DIRS` sets aside media inside extras-named folders
+  *below* the release before classifying, and a plan note says how many were
+  left in place. `Specials` is not on that list — it is season 0.
 - **`guessit` takes "Part Two" out of a film's title.** `Dune Part Two 2024
   ...` parses as title `Dune` plus `part: 2`, so TMDB was asked for a *Dune*
   from 2024 and answered with the 1984 and 2021 films — ambiguous, and the
