@@ -14,6 +14,7 @@ pipeline confidently filed something under the wrong programme".
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import shutil
 import sys
@@ -24,7 +25,7 @@ from typing import Any
 from torrent_agent import ai_data_store, boxsets, deluge
 from torrent_agent.deluge import DelugeError
 from torrent_agent.security import ClamAVUnavailable, clamav_scan
-from torrent_agent.tidy import TidyPlan, execute, plan_for
+from torrent_agent.tidy import TidyPlan, execute, extras_dirs, plan_for
 
 log = logging.getLogger("server.pipeline")
 
@@ -45,6 +46,7 @@ class Outcome:
     jellyfin_ok: bool = True
     details: list[str] = field(default_factory=list)
     collections: list[str] = field(default_factory=list)
+    cleanup: list[str] = field(default_factory=list)
 
 
 def _destination_for(kind: str, config: dict[str, Any]) -> str | None:
@@ -72,6 +74,35 @@ def host_path(container_path: str, config: dict[str, Any]) -> str:
     if best is None:
         return container_path
     return best[1].rstrip("/") + container_path[len(best[0].rstrip("/")):]
+
+
+def delete_extras(source: Path) -> tuple[int, int]:
+    """Delete a delivered release's bonus material; (files, bytes) removed.
+
+    Featurettes, deleted scenes and the like are never filed (see
+    tidy._EXTRAS_DIRS), and left in the downloads directory they pile up —
+    gigabytes per box set, with nothing ever coming back for them. Called only
+    after delivery succeeded: an escalated download keeps everything for the
+    human who has to look at it. Only extras folders *below* the release are
+    touched, then whatever directories that leaves empty.
+    """
+    if not source.is_dir() or source.is_symlink():
+        return 0, 0
+    files = size = 0
+    for folder in extras_dirs(source):
+        for p in folder.rglob("*"):
+            if p.is_file() and not p.is_symlink():
+                files += 1
+                size += p.stat().st_size
+        shutil.rmtree(folder)
+    # Bottom-up, so a season folder emptied by tidy goes before its parent.
+    for d in sorted((p for p in source.rglob("*") if p.is_dir()),
+                    key=lambda p: len(p.parts), reverse=True):
+        with contextlib.suppress(OSError):
+            d.rmdir()
+    with contextlib.suppress(OSError):
+        source.rmdir()
+    return files, size
 
 
 def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
@@ -160,6 +191,17 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
             plan=plan,
         )
 
+    # 5b. The extras tidy set aside. The episodes are safely delivered, so
+    #     nothing is lost if this fails — it is only disk.
+    cleanup: list[str] = []
+    try:
+        files, size = delete_extras(source)
+        if files:
+            cleanup.append(f"Deleted {files} extra(s), {size / 1024**3:.1f} GB")
+    except OSError as exc:
+        log.warning("could not delete extras from %s: %s", source, exc)
+        cleanup.append(f"Could not delete extras: {exc}")
+
     # 6. Tell Jellyfin. Best-effort by design: the files have landed, so a
     #    failed scan is a nuisance, not a lost download. Jellyfin is a video
     #    library — a manga delivery has nothing for it to scan.
@@ -209,7 +251,7 @@ def run(torrent: dict[str, Any], config: dict[str, Any]) -> Outcome:
 
     return Outcome(
         True, "done", f"Delivered {plan.root.name}", plan=plan, delivered_to=landed,
-        jellyfin_ok=jellyfin_ok, collections=collections,
+        jellyfin_ok=jellyfin_ok, collections=collections, cleanup=cleanup,
     )
 
 
@@ -234,6 +276,7 @@ def format_outcome(outcome: Outcome) -> str:
         # downloads directory with no record that anything was left over.
         lines += [f"   ⓘ {n}" for n in (plan.notes if plan else [])]
         lines += [f"   📚 {c}" for c in outcome.collections]
+        lines += [f"   🗑 {c}" for c in outcome.cleanup]
         return "\n".join(lines)
 
 

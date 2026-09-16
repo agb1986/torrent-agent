@@ -281,10 +281,21 @@ def test_a_season_packs_extras_do_not_count_as_films(tmp_path, tv_lookups):
 
     assert plan.confident, plan.problems
     assert len(plan.moves) == 2
-    assert "3 extra(s) left in place, not filed" in plan.notes
     assert {p.name for p in plan.left_behind} == {
         "The Making of Veep.mkv", "Andrew.mkv", "Deleted scenes Ep 1-5.mkv"
     }
+
+
+def test_extras_dirs_lists_only_the_outermost_extras_folders(tmp_path):
+    src = tmp_path / "Extras"          # the release's own name does not count
+    _mk(src / "Season 1" / "Show S01E01.mkv")
+    _mk(src / "Featurettes" / "Season 2" / "Deleted Scenes" / "Andrew.mkv")
+    _mk(src / "Specials" / "Show S00E01.mkv")    # season 0, not an extra
+    _mk(src / "Season 1" / "Behind the Scenes" / "Clip.mkv")
+
+    assert tidy.extras_dirs(src) == [
+        src / "Featurettes", src / "Season 1" / "Behind the Scenes"
+    ]
 
 
 def test_a_release_of_only_extras_is_escalated(tmp_path):
