@@ -509,3 +509,72 @@ def test_a_shared_title_is_settled_by_which_show_the_files_fit(tmp_path, monkeyp
 
     assert plan.tmdb_id == "37854"  # the anime, not tt11737520's live-action
     assert plan.year == 1999
+
+
+def test_the_release_folder_year_beats_a_stray_year_in_the_files(tmp_path, monkeypatch):
+    """A UK box set must not be filed as its US remake.
+
+    `Shameless UK 2004 S01-S11 ...` names its year once, on the folder. The
+    episode files carry none — except four webisodes under `Mini Episodes/`
+    named `Shameless_S2011E01`, which parse as year 2011. That lone number
+    was the only year the planner saw, and TVmaze's 2011 Shameless is the US
+    remake: a plausible-looking plan for the wrong programme.
+    """
+    uk = {"id": 746, "name": "Shameless", "premiered": "2004-01-13",
+          "externals": {"imdb": "tt0377260"}}
+    us = {"id": 150, "name": "Shameless", "premiered": "2011-01-09",
+          "externals": {"imdb": "tt1586680"}}
+    asked = []
+
+    def fake_show(title, year=None):
+        asked.append(year)
+        return uk if year == 2004 else us
+
+    monkeypatch.setattr(tidy, "tvmaze_show", fake_show)
+    monkeypatch.setattr(tidy, "tvmaze_candidates", lambda title: [us, uk])
+    monkeypatch.setattr(
+        tidy, "tvmaze_episodes",
+        lambda sid: {(1, 1): "Episode 1", (1, 2): "Episode 2"},
+    )
+    monkeypatch.setattr(
+        tidy, "_resolve_tmdb",
+        lambda mt, t, y, imdb: (("16171" if y == 2004 else "34307"), "Shameless", y, ""),
+    )
+
+    src = tmp_path / "Shameless UK 2004 S01-S11 Complete 1080p ALL4 WEB-DL H264 AAC2.0"
+    _mk(src / "S01" / "Shameless_S01E01_Series 1 Episode 1.mkv")
+    _mk(src / "S01" / "Shameless_S01E02_Series 1 Episode 2.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert asked == [2004]
+    assert plan.year == 2004
+    assert plan.tmdb_id == "16171"
+
+
+def test_a_tvmaze_outage_is_reported_as_a_lookup_failure_not_a_missing_show(
+    tmp_path, monkeypatch
+):
+    """"TVmaze has no match" is a verdict about the release; an outage is not.
+
+    The lookup used to swallow network errors into an empty result, so a
+    transient failure escalated as "no such show" and was never retried —
+    the message told the human to check the release, not the connection.
+    """
+    import urllib.error
+
+    def down(url):
+        raise urllib.error.URLError("connection reset")
+
+    monkeypatch.setattr(tidy, "_get_json", down)
+
+    src = tmp_path / "Shameless UK 2004 S01-S11 Complete 1080p"
+    _mk(src / "Shameless_S01E01_Series 1 Episode 1.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert not plan.confident
+    assert any("lookup failed" in p for p in plan.problems)
+    assert not any("no match" in p for p in plan.problems)
+    with pytest.raises(tidy.TVmazeUnavailable):
+        tidy.tvmaze_show("Shameless", 2004)

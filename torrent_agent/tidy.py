@@ -186,13 +186,26 @@ def tvmaze_show(title: str, year: int | None = None) -> dict | None:
     return results[0]
 
 
+class TVmazeUnavailable(RuntimeError):
+    """TVmaze could not be asked — a network or decode failure, not an answer.
+
+    Distinct from an empty result on purpose: "no such show" is a verdict the
+    planner escalates as the release's problem, while "could not look it up"
+    is a transient fault of ours. Reported as the former, a Shameless box set
+    that only hit a TVmaze hiccup was logged as a show TVmaze does not know.
+    """
+
+
 def tvmaze_candidates(title: str) -> list[dict]:
-    """Every show TVmaze offers for `title`, best-scored first."""
+    """Every show TVmaze offers for `title`, best-scored first.
+
+    Raises TVmazeUnavailable when the lookup itself failed.
+    """
     q = urllib.parse.urlencode({"q": title})
     try:
         results = _get_json(f"{_TVMAZE}/search/shows?{q}")
-    except (urllib.error.URLError, OSError, ValueError):
-        return []
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise TVmazeUnavailable(f"TVmaze lookup failed for {title!r}: {exc}") from exc
     return [row["show"] for row in results if row.get("show")]
 
 
@@ -427,6 +440,24 @@ def plan_for(source: str | Path, destinations: dict[str, str] | None = None) -> 
     )
 
 
+def _release_year(source: Path, episodes: list[tuple[Path, dict]]) -> int | None:
+    """The year that disambiguates the show, release folder first.
+
+    The folder is named for the release as a whole (`Shameless UK 2004
+    S01-S11 ...`) and is the one place a box set states its year; the episode
+    files inside usually carry none. When they do carry one it can be a
+    stray: a `Mini Episodes/Shameless_S2011E01` webisode parses as year 2011,
+    and that single number pointed a UK series at its US remake. Only a plain
+    single year counts — a span like `(1982-1993)` is no help either way.
+    """
+    if source.is_dir():
+        year = guessit(source.name).get("year")
+        if isinstance(year, int):
+            return year
+    years = {g.get("year") for _f, g in episodes if isinstance(g.get("year"), int)}
+    return years.pop() if len(years) == 1 else None
+
+
 def _plan_tv(source: Path, episodes: list[tuple[Path, dict]]) -> TidyPlan:
     titles = {str(g.get("title") or "").strip() for _f, g in episodes}
     titles.discard("")
@@ -437,10 +468,11 @@ def _plan_tv(source: Path, episodes: list[tuple[Path, dict]]) -> TidyPlan:
         )
     parsed_title = titles.pop()
 
-    years = {g.get("year") for _f, g in episodes if g.get("year")}
-    release_year = years.pop() if len(years) == 1 else None
-
-    show, names = _resolve_tv_show(parsed_title, release_year, episodes)
+    release_year = _release_year(source, episodes)
+    try:
+        show, names = _resolve_tv_show(parsed_title, release_year, episodes)
+    except TVmazeUnavailable as exc:
+        return TidyPlan(kind="tv", problems=[str(exc)])
     if not show:
         return TidyPlan(kind="tv", problems=[f"TVmaze has no match for {parsed_title!r}"])
     if not names:
