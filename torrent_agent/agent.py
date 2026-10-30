@@ -223,7 +223,10 @@ class TorrentAgent:
         return json.dumps({"results": out})
 
     def _tool_list_episodes(self, show: str, season: int, year: int | None = None) -> str:
-        found = tidy.tvmaze_show(show, year)
+        try:
+            found = tidy.tvmaze_show(show, year)
+        except tidy.TVmazeUnavailable as exc:
+            return json.dumps({"error": str(exc)})
         if not found:
             return json.dumps({"error": f"No TVmaze match for {show!r}."})
 
