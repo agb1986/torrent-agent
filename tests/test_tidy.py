@@ -461,6 +461,25 @@ def test_a_point_five_recap_is_left_in_place_rather_than_colliding(tmp_path, ani
     assert any(p.name.endswith("145.5 - A Special Recap - 2160p.mkv") for p in plan.left_behind)
 
 
+def test_an_unnumbered_special_is_left_in_place_not_a_reason_to_escalate(tmp_path, tv_lookups):
+    """TVmaze files specials without a number, so "S00E01" has nothing to match.
+
+    The Lone Gunmen shipped 13 episodes plus a SPECIALS folder; the specials
+    stranded all 13. They are set aside, and the real episodes are filed.
+    """
+    tv_lookups()
+    src = tmp_path / "Generation Kill"
+    _mk(src / "Generation Kill - Ep. 01 - Get Some.mkv")
+    _mk(src / "SPECIALS" / "Generation Kill - S00 E01 - Behind the Scenes.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert plan.confident, plan.problems
+    assert [m.target.name for m in plan.moves] == ["S01E01 - Get Some.mkv"]
+    assert any("special" in n for n in plan.notes)
+    assert any(p.name.startswith("Generation Kill - S00 E01") for p in plan.left_behind)
+
+
 def test_an_explicit_season_episode_never_becomes_an_absolute_number(tmp_path, tv_lookups):
     """S02E05 must not be rebuilt into absolute 205 when TVmaze lacks it.
 

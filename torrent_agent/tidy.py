@@ -512,6 +512,12 @@ def _plan_tv(source: Path, episodes: list[tuple[Path, dict]]) -> TidyPlan:
             plan.notes.append(f"{f.name}: recap special, left in place")
             continue
         key = _episode_key(f.stem, g, names, order)
+        if key is None and season == 0:
+            # TVmaze files specials without an episode number, so an explicit
+            # S00Exx has nothing to match. Naming one from its title would be a
+            # guess; setting it aside costs the pack nothing.
+            plan.notes.append(f"{f.name}: special TVmaze does not number, left in place")
+            continue
         if key is None:
             absolute = _absolute_number(f.stem, g)
             plan.problems.append(
