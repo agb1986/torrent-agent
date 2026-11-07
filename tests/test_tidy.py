@@ -597,3 +597,48 @@ def test_a_tvmaze_outage_is_reported_as_a_lookup_failure_not_a_missing_show(
     assert not any("no match" in p for p in plan.problems)
     with pytest.raises(tidy.TVmazeUnavailable):
         tidy.tvmaze_show("Shameless", 2004)
+
+
+def test_a_bilingual_release_title_resolves_by_its_english_name(tmp_path, monkeypatch):
+    """`三体 San Ti Three-Body` matched nothing, so a full 30-episode set escalated.
+
+    TVmaze knows the show only as "Three-Body". The shorter name is accepted
+    because the year agrees and every file lands on a real episode.
+    """
+    show = {"id": 65038, "name": "Three-Body", "premiered": "2023-01-15", "externals": {}}
+    monkeypatch.setattr(
+        tidy, "tvmaze_show", lambda t, y=None: show if t == "Three-Body" else None
+    )
+    monkeypatch.setattr(
+        tidy, "tvmaze_episodes", lambda sid: {(1, n): f"Episode {n}" for n in (1, 2)}
+    )
+    monkeypatch.setattr(tidy, "_resolve_tmdb", lambda mt, t, y, imdb: ("1", t, y, ""))
+
+    src = tmp_path / "三体.San.Ti.Three-Body.2023.H264.1080p.eac3.5.1"
+    _mk(src / "三体.San.Ti.Three-Body.2023.S01E01.mkv")
+    _mk(src / "三体.San.Ti.Three-Body.2023.S01E02.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert plan.confident, plan.problems
+    assert plan.year == 2023
+
+
+def test_an_alternate_title_that_does_not_fit_the_files_still_escalates(
+    tmp_path, monkeypatch
+):
+    show = {"id": 1, "name": "Three-Body", "premiered": "2023-01-15", "externals": {}}
+    monkeypatch.setattr(
+        tidy, "tvmaze_show", lambda t, y=None: show if t == "Three-Body" else None
+    )
+    # Episode 9 does not exist on the candidate, so it is not this show.
+    monkeypatch.setattr(tidy, "tvmaze_episodes", lambda sid: {(1, 1): "One"})
+
+    src = tmp_path / "三体.San.Ti.Three-Body.2023.1080p"
+    _mk(src / "三体.San.Ti.Three-Body.2023.S01E01.mkv")
+    _mk(src / "三体.San.Ti.Three-Body.2023.S01E09.mkv")
+
+    plan = tidy.plan_for(src)
+
+    assert not plan.confident
+    assert any("no match" in p for p in plan.problems)
