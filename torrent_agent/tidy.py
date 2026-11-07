@@ -330,7 +330,7 @@ def _resolve_tv_show(
     """
     show = tvmaze_show(parsed_title, release_year)
     if not show:
-        return None, {}
+        return _resolve_by_alternate_title(parsed_title, release_year, episodes)
     names = tvmaze_episodes(int(show["id"]))
     if release_year is not None or _fit(episodes, names):
         return show, names
@@ -346,6 +346,46 @@ def _resolve_tv_show(
         if scored > best_fit:
             best, best_names, best_fit = other, other_names, scored
     return best, best_names
+
+
+def _alternate_titles(title: str) -> list[str]:
+    """Shorter names a bilingual release title may hide, longest first.
+
+    `三体 San Ti Three-Body` is a native name, a romanisation and the English
+    title run together, and TVmaze knows only the last. Offer the Latin-only
+    part, then each trailing run of its words.
+    """
+    latin = " ".join(t for t in title.split() if t.isascii())
+    words = latin.split()
+    out: list[str] = []
+    for i in range(len(words)):
+        candidate = " ".join(words[i:])
+        if candidate and candidate != title and candidate not in out:
+            out.append(candidate)
+    return out
+
+
+def _resolve_by_alternate_title(
+    parsed_title: str, release_year: int | None, episodes: list[tuple[Path, dict]]
+) -> tuple[dict | None, dict[tuple[int, int], str]]:
+    """Last resort when the full title matched nothing.
+
+    A guess about where the real title starts, so it is held to a stricter
+    standard than a title match: the show must premiere in the release's year
+    (when the release states one) and *every* file must land on one of its
+    episodes. Anything less and the release still escalates.
+    """
+    for alt in _alternate_titles(parsed_title):
+        show = tvmaze_show(alt, release_year)
+        if not show:
+            continue
+        premiered = str(show.get("premiered") or "")
+        if release_year is not None and premiered[:4] != str(release_year):
+            continue
+        names = tvmaze_episodes(int(show["id"]))
+        if names and _fit(episodes, names) == len(episodes):
+            return show, names
+    return None, {}
 
 
 def _resolve_tmdb(media_type: str, title: str, year: int | None, imdb: str | None):
